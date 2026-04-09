@@ -1,0 +1,57 @@
+# Evolutionary prompt optimization (Phase 2) — ~100 Groq calls/topic order-of-magnitude
+#
+# Default topic when you run: uv run python deslop/run_topic.py (no --topic).
+# Override anytime: uv run python deslop/run_topic.py --topic "Your topic here"
+topic: "Write a short reflective essay on how habits form and why they are hard to break."
+
+# Rough budget:
+#   essay_Groq ≈ population_size × generations × essays_per_candidate
+#   mutator_Groq ≈ (population_size − n_elite) × (generations − 1) with variance (crossover/mutate)
+# Default below: 6×4×2 = 48 essay calls + ~15–35 mutation calls → ~65–85 total
+
+population_size: 6
+generations: 4
+essays_per_candidate: 2
+essay_temperature: 0.9
+lambda_semantic: 0.3
+
+# Detector scoring for generated essays (essay-length)
+chunked_scoring: true
+chunk_window_tokens: 512
+chunk_stride_tokens: 256
+chunk_max_chunks: null
+# mean | max | weighted (mean+max resists intro-only gaming)
+chunk_aggregate: weighted
+chunk_weight_mean: 0.5
+chunk_weight_max: 0.5
+
+embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+
+# Optional drift penalty: null | "topic" | "source_passage"
+#   topic — reference is the topic string (short-rubric similarity scale).
+#   source_passage — reference is alignment_source_passage below (passage–passage scale:
+#   mean-pooled embeddings + capped ROUGE-L). For run_topic.py set the passage in YAML.
+alignment_reference_mode: null
+# alignment_reference_mode: "topic"
+# alignment_reference_mode: "source_passage"
+# alignment_source_passage: |
+#   Paste the original AI-generated passage to stay aligned with when optimizing prompts.
+alignment_source_passage: null
+drift:
+  lambda_semantic: 1.0
+  lambda_rouge_l: 0.35
+  lambda_bertscore: 0.5
+  use_bertscore: false
+  # If set, BERTScore term runs only when raw detector_slop <= this (lower = better).
+  bertscore_slop_gate: 0.42
+
+# groq_model — essay generation (run_topic: make_groq_essay_fn).
+# mutator_groq_model — prompt mutations only (optimize → refill_population → mutate_prompt).
+groq_model: "llama-3.3-70b-versatile"
+mutator_groq_model: "llama-3.1-8b-instant"
+
+min_words: 150
+max_words: 2000
+min_topic_similarity: 0.3
+
+optimization_log_jsonl: "outputs/deslop/runs.jsonl"

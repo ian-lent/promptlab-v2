@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+outputs/
+
+# Large / local data (Aeon Kaggle CSV + generated mirrors)
+data/source/*.csv
+data/mirror/*.jsonl
+
+# Merged / cache JSONL — often >100MB; GitHub rejects. Build locally (see README / data pipeline).
+data/merged/*.jsonl
+data/cache/
+
+# Ad-hoc bundles
+*.zip

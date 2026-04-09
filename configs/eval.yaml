@@ -1,0 +1,16 @@
+# End-to-end evaluation
+num_topics: 50
+topics_file: null
+
+# Detectors
+cotrained_detector_dir: "outputs/detector"
+external_detector_checkpoint: "pangram/editlens_roberta-large"
+
+embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+perplexity_model: "gpt2"
+
+# Lexicon (optional): directory or file with slop keywords, one per line
+slop_lexicon_dir: "../slop_configs"
+
+groq_model: "llama-3.3-70b-versatile"
+results_json: "outputs/eval/results.json"

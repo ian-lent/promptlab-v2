@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "promptlab-v2"
+version = "0.1.0"
+description = "Adversarial co-training pipeline: slop detector + evolutionary prompt optimizer + rewriter distillation"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "torch>=2.0",
+    "transformers>=4.40",
+    "peft>=0.10",
+    "datasets>=2.19",
+    "accelerate>=0.25",
+    "sentence-transformers>=2.7",
+    "trl>=0.8",
+    "groq>=0.5",
+    "google-generativeai>=0.5",
+    "pandas>=2.0",
+    "tqdm>=4.65",
+    "pyyaml>=6.0",
+    "scikit-learn>=1.3",
+    "langdetect>=1.0.9",
+    "rouge-score>=0.1.2",
+]
+
+[project.optional-dependencies]
+bnb = ["bitsandbytes>=0.43"]
+eval_extras = ["nltk>=3.8"]
+similarity_extras = ["bert-score>=0.3.13"]
+kaggle = ["kaggle>=1.6"]
+dev = ["pytest>=7.0", "ruff>=0.1"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["detector", "deslop", "cotrain", "rewriter", "eval"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

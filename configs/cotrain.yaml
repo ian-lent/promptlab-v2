@@ -1,0 +1,92 @@
+# Adversarial co-training: deslop improves round-over-round; detector is a mostly static reward by default.
+# First run: `uv run python cotrain/loop.py --smoke` then scale up.
+# --smoke also shortens detector training (override with --detector-num-epochs / --detector-max-train-samples):
+smoke_detector_epochs: 1
+smoke_max_train_samples: 4096
+# Use 0 or null for smoke_max_train_samples to train on the full merged JSONL (slow).
+
+# Detector as reward: static = same checkpoint all rounds (no detector/train.py). adaptive = retrain each round unless skipped.
+detector_mode: static
+# detector_mode: adaptive
+
+# When retraining: multiply detector YAML learning_rate by this (>0). 0.0 omits scaling (full YAML LR). Use 0.1 / 0.5 / 1.0 to tune.
+detector_learning_rate_scale: 0.0
+
+# Skip detector/train.py subprocess (also implied when detector_mode is static).
+skip_detector_retrain: true
+
+# Few-shot winning essays → next round deslop prompts (pool capped globally by slop_score).
+few_shot_n: 5
+few_shot_pool_max: 50
+few_shot_pool_path: "outputs/cotrain/fewshot_pool.jsonl"
+
+# Colab: write outputs/cotrain/colab_checkpoint.json every round (session timeout guard).
+colab_mode: true
+colab_checkpoint_path: "outputs/cotrain/colab_checkpoint.json"
+
+num_rounds: 2
+topics_per_round: 6
+population_size: 5
+generations_per_topic: 3
+essays_per_candidate: 2
+
+# Essay + mutator (Groq) — aligned with configs/deslop.yaml
+# groq_model: long-form essay generation. mutator_groq_model: prompt mutation / refill only.
+groq_model: "llama-3.3-70b-versatile"
+essay_temperature: 0.9
+mutator_groq_model: "llama-3.1-8b-instant"
+embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+lambda_semantic: 0.3
+min_words: 150
+max_words: 2000
+min_topic_similarity: 0.3
+chunked_scoring: true
+chunk_window_tokens: 512
+chunk_stride_tokens: 256
+chunk_max_chunks: null
+chunk_aggregate: weighted
+chunk_weight_mean: 0.5
+chunk_weight_max: 0.5
+
+# Same keys as configs/deslop.yaml — passed through to deslop.optimize
+alignment_reference_mode: null
+# For source_passage: JSONL with {"topic": "<exact string>", "source_passage": "..."} per line
+# (e.g. export AI essays keyed by the same topic string used in the co-training pool).
+topic_sources_jsonl: null
+# Append best fool essay per topic each round (raw slop_score ratchets down). Feeds next round
+# via topic_src when alignment_reference_mode is source_passage; point topic_sources_jsonl at
+# this file on a fresh run to reuse.
+auto_update_topic_sources: false
+topic_sources_auto_path: "outputs/cotrain/topic_sources_auto.jsonl"
+# alignment_reference_mode: "source_passage"
+# topic_sources_jsonl: "data/cotrain/topic_sources.jsonl"
+alignment_source_passage: null
+drift:
+  lambda_semantic: 1.0
+  lambda_rouge_l: 0.35
+  lambda_bertscore: 0.5
+  use_bertscore: false
+  bertscore_slop_gate: 0.42
+
+# Initial / static detector checkpoint (HF id or local path)
+initial_detector_checkpoint: "pangram/editlens_roberta-large"
+detector_train_config: "configs/detector.yaml"
+detector_output_root: "outputs/detector_cotrain"
+
+# Fool threshold: essays scoring below this on detector_v{r-1} are relabeled AI
+binary_threshold: 0.5
+
+# Data manager
+base_dataset_jsonl: "data/merged/train.jsonl"
+recent_round_weight: 1.5
+
+# Pair log for rewriter distillation
+pair_log_path: "outputs/cotrain/prompt_pairs.jsonl"
+round_summary_path: "outputs/cotrain/round_summaries.jsonl"
+
+# Stopping (cotrain/stopping.py)
+stop_patience: 2
+stop_epsilon: 0.02
+
+# Topics file: one topic per line, or null to use bundled seeds
+topics_file: null

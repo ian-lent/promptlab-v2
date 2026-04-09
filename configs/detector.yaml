@@ -1,0 +1,43 @@
+# Slop detector (EditLens-style bucket classifier → continuous score)
+checkpoint: "pangram/editlens_roberta-large"
+tokenizer_name: "FacebookAI/roberta-large"
+# Verified from checkpoint config: model.config.num_labels == 4
+num_buckets: 4
+max_length: 512
+
+# HF dataset (gated); set HF_TOKEN in environment
+dataset_name: "pangram/editlens_iclr"
+text_field: "text"
+# Continuous label field — adjust if HF schema differs (inspect dataset)
+score_field: "score"
+
+output_dir: "outputs/detector"
+learning_rate: 2.0e-5
+batch_size: 8
+gradient_accumulation_steps: 1
+num_epochs: 3
+warmup_ratio: 0.06
+weight_decay: 0.01
+seed: 42
+
+# Merged / prepared data (optional alternative to raw HF)
+merged_train_jsonl: "data/merged/train.jsonl"
+merged_val_jsonl: "data/merged/val.jsonl"
+merged_test_jsonl: "data/merged/test.jsonl"
+
+# Macro-F1 checkpoint selection uses bucket labels derived from score
+save_total_limit: 3
+
+# Training visibility: JSONL trace + step logging (see detector/training_trace.py)
+training_trace: true
+training_trace_filename: training_trace.jsonl
+logging_steps: 20
+training_trace_print_eval: true
+# Optional mid-epoch validation (slower). 0 = once per epoch only.
+eval_every_steps: 0
+
+# Llama / QLoRA path (optional)
+model_type: "roberta"  # roberta | llama
+qlora_r: 16
+qlora_alpha: 32
+qlora_lr: 1.0e-4

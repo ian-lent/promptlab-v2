@@ -1,0 +1,32 @@
+# Binary slop detector: RoBERTa-large + fresh 2-class head (human=0, AI=1).
+# Train on mirror JSONL from data/build_mirror_dataset.py (~2000+ pairs recommended).
+
+checkpoint: "FacebookAI/roberta-large"   # informational; training uses base_model when fresh head
+base_model: "FacebookAI/roberta-large"
+tokenizer_name: "FacebookAI/roberta-large"
+num_buckets: 2
+max_length: 512
+fresh_classification_head: true
+
+output_dir: "outputs/detector_binary"
+# learning_rate here is the base; co-training can pass `detector/train.py --lr-scale` from
+# configs/cotrain.yaml `detector_learning_rate_scale` (>0) to scale down without editing this file.
+learning_rate: 2.0e-5
+batch_size: 8
+gradient_accumulation_steps: 1
+num_epochs: 4
+warmup_ratio: 0.06
+weight_decay: 0.01
+seed: 42
+save_total_limit: 3
+
+training_trace: true
+training_trace_filename: training_trace.jsonl
+logging_steps: 20
+training_trace_print_eval: true
+eval_every_steps: 0
+
+# Produced by: python data/make_mirror_splits.py --input data/mirror/mirrors.jsonl
+merged_train_jsonl: "data/mirror/train.jsonl"
+merged_val_jsonl: "data/mirror/val.jsonl"
+merged_test_jsonl: "data/mirror/test.jsonl"
