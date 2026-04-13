@@ -34,6 +34,9 @@ SIMILARITY_PASSAGE_MAX_CHUNKS = 14
 # ROUGE-L: cap extremely long inputs (scores first segment; document in docstring).
 SIMILARITY_ROUGE_MAX_CHARS = 12000
 
+# SentenceTransformer / MiniLM context — char clips alone can still exceed 512 subword tokens.
+SIMILARITY_EMBED_MAX_TOKENS = 512
+
 _embedder_cache: dict[str, Any] = {}
 _rouge_scorer: Any = None
 
@@ -58,6 +61,35 @@ def _get_embedder(model_name: str) -> Any:
 
         _embedder_cache[model_name] = SentenceTransformer(model_name)
     return _embedder_cache[model_name]
+
+
+def _truncate_text_for_embedder(
+    model: Any,
+    text: str,
+    *,
+    max_tokens: int = SIMILARITY_EMBED_MAX_TOKENS,
+) -> str:
+    """
+    Truncate to ``max_tokens`` (including special tokens) using the model tokenizer.
+
+    Char-level clipping (e.g. ``clip_for_minilm``) does not bound subword count; dense essays
+    can still exceed 512 tokens and trigger ST warnings without this step.
+    """
+    tok = getattr(model, "tokenizer", None)
+    if tok is None:
+        return text
+    cap = max_tokens
+    msl = getattr(model, "max_seq_length", None)
+    if msl is not None and int(msl) > 0:
+        cap = min(cap, int(msl))
+    enc = tok(
+        text,
+        truncation=True,
+        max_length=cap,
+        add_special_tokens=True,
+    )
+    ids = enc["input_ids"]
+    return tok.decode(ids, skip_special_tokens=True)
 
 
 def _get_rouge_scorer() -> Any:
@@ -86,7 +118,8 @@ def _mean_pooled_embedding(
     chunks = _text_chunks(text, chunk_chars)[:max_chunks]
     if not chunks:
         return None
-    embs = model.encode(chunks, convert_to_tensor=True)
+    chunks_t = [_truncate_text_for_embedder(model, c) for c in chunks]
+    embs = model.encode(chunks_t, convert_to_tensor=True)
     v = embs.float().mean(dim=0)
     return torch.nn.functional.normalize(v, dim=0)
 
@@ -108,6 +141,10 @@ def _semantic_drift(
         a = clip_for_minilm(original.strip(), max_chars=SIMILARITY_CLIP_TOPIC_CHARS)
         b = clip_for_minilm(rewritten.strip(), max_chars=SIMILARITY_CLIP_TOPIC_CHARS)
         if not a or not b:
+            return 1.0
+        a = _truncate_text_for_embedder(model, a)
+        b = _truncate_text_for_embedder(model, b)
+        if not a.strip() or not b.strip():
             return 1.0
         e1 = model.encode(a, convert_to_tensor=True)
         e2 = model.encode(b, convert_to_tensor=True)

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
-from typing import TYPE_CHECKING
 
 from deslop.prompt_bank import PromptCandidate
+
+logger = logging.getLogger(__name__)
 
 MUTATION_OPS: dict[str, str] = {
     "paraphrase": (
@@ -60,11 +62,19 @@ def _groq_complete(system: str, user: str, model: str, max_tokens: int = 1024) -
     return (resp.choices[0].message.content or "").strip()
 
 
-def _parse_triplet(text: str) -> tuple[str, str, str]:
-    """Parse SYSTEM:/USER:/STYLE: blocks or fall back to JSON."""
+def _parse_triplet(text: str) -> tuple[str, str, str] | None:
+    """
+    Parse SYSTEM:/USER:/STYLE: blocks or JSON.
+
+    When the model returns JSON (leading ``{``), malformed or truncated output yields ``None``
+    so callers can retry or fall back instead of crashing the evolutionary loop.
+    """
     text = text.strip()
     if text.startswith("{"):
-        data = json.loads(text)
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            return None
         return (
             str(data.get("system_prompt", "")).strip(),
             str(data.get("user_template", "")).strip(),
@@ -89,7 +99,7 @@ def mutate_prompt(
     *,
     mutator_groq_model: str = "llama-3.1-8b-instant",
     other: PromptCandidate | None = None,
-) -> PromptCandidate:
+) -> PromptCandidate | None:
     op_text = MUTATION_OPS.get(op, MUTATION_OPS["paraphrase"])
     base = (
         f"SYSTEM PROMPT:\n{parent.system_prompt}\n\nUSER TEMPLATE:\n{parent.user_template}\n\n"
@@ -118,14 +128,27 @@ def mutate_prompt(
         user_msg,
         mutator_groq_model,
     )
-    raw_fixed = raw
-    if not raw.strip().startswith("{"):
+    stripped = raw.strip()
+    raw_fixed = stripped
+    if not stripped.startswith("{"):
         raw_fixed = "{" + raw.split("{", 1)[-1] if "{" in raw else raw
-    try:
-        system, user, style = _parse_triplet(raw_fixed)
-    except (json.JSONDecodeError, ValueError):
-        system, user, style = _parse_triplet(raw)
 
+    triplet: tuple[str, str, str] | None = None
+    for cand in dict.fromkeys((raw_fixed.strip(), stripped)):
+        triplet = _parse_triplet(cand)
+        if triplet is not None:
+            break
+
+    if triplet is None:
+        logger.warning(
+            "mutator: failed to parse LLM output (JSON decode error or empty JSON segment); "
+            "op=%r preview=%r",
+            op,
+            raw[:500],
+        )
+        return None
+
+    system, user, style = triplet
     return parent.with_updates(
         system_prompt=system,
         user_template=user,

@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 import random
 from collections import defaultdict
 
 from deslop.mutator import MUTATION_OPS, mutate_prompt
 from deslop.prompt_bank import PromptCandidate
+
+logger = logging.getLogger(__name__)
+
+_MUTATE_ATTEMPTS = 3
 
 
 class MutationBandit:
@@ -31,8 +36,17 @@ class MutationBandit:
         *,
         mutator_groq_model: str,
         other: PromptCandidate | None = None,
-    ) -> PromptCandidate:
+    ) -> PromptCandidate | None:
         op = self.choose_op()
         if op == "crossover" and other is None:
             op = "paraphrase"
-        return mutate_prompt(parent, op, mutator_groq_model=mutator_groq_model, other=other)
+        for attempt in range(_MUTATE_ATTEMPTS):
+            child = mutate_prompt(parent, op, mutator_groq_model=mutator_groq_model, other=other)
+            if child is not None:
+                return child
+        logger.warning(
+            "bandit.mutate: all %d attempts failed for op=%r; returning None",
+            _MUTATE_ATTEMPTS,
+            op,
+        )
+        return None
