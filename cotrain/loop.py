@@ -534,6 +534,23 @@ def cotrain(
                 **call_drift,
             )
             round_all_essays.extend(essays)
+            if best_cand is None:
+                _log(
+                    json.dumps(
+                        {
+                            "cotrain_optimizer_skip": True,
+                            "round": r,
+                            "topic": topic,
+                            "essays_logged": len(essays),
+                        }
+                    )
+                )
+                _log(
+                    f"cotrain:   topic {ti + 1}/{len(sampled)} — no valid candidate "
+                    f"(all essays failed constraints); skipping pair log and continuing"
+                )
+                continue
+
             _log(
                 f"cotrain:   finished topic {ti + 1}/{len(sampled)} "
                 f"(best_fitness={best_cand.fitness:.4f}, essays_logged={len(essays)})"

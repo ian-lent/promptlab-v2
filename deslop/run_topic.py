@@ -130,6 +130,18 @@ def main() -> None:
         **drift_kw,
     )
 
+    if best is None:
+        print(
+            json.dumps(
+                {
+                    "error": "no_valid_candidate",
+                    "topic": topic,
+                    "n_essays": len(essays),
+                }
+            )
+        )
+        raise SystemExit(2)
+
     print(json.dumps({"best_prompt_id": best.id, "best_fitness": best.fitness, "n_essays": len(essays)}))
 
 

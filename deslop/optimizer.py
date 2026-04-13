@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -26,6 +27,9 @@ if TYPE_CHECKING:
     from detector.model import SlopDetector
 else:
     PairLogger = Any  # noqa: UP007
+
+logger = logging.getLogger(__name__)
+
 
 def _few_shot_block(
     examples: list[str] | None,
@@ -90,7 +94,7 @@ def optimize(
     drift_bertscore_slop_gate: float | None = None,
     alignment_source_passage: str | None = None,
     few_shot_examples: list[str] | None = None,
-) -> tuple[PromptCandidate, list[dict]]:
+) -> tuple[PromptCandidate | None, list[dict]]:
     """
     Evolutionary loop: minimize mean detector score subject to constraints.
 
@@ -104,7 +108,9 @@ def optimize(
     Essay text is produced by ``target_llm`` (configure Groq model via ``make_groq_essay_fn`` at
     the CLI / cotrain entrypoint). Prompt mutations use ``mutator_groq_model`` (refill path).
 
-    Returns best PromptCandidate and list of generated essay records for co-training.
+    Returns ``(best, essays)``. If every candidate fails constraints in every generation,
+    ``best`` is ``None`` and ``essays`` still contains logged rows (for auditing); callers
+    should skip pair logging and continue.
     """
     constraint_kwargs = constraint_kwargs or {}
     drift_w = drift_weights or DriftWeights()
@@ -287,5 +293,10 @@ def optimize(
                 cotrain_round=cotrain_round,
             )
 
-    assert best_ever is not None
+    if best_ever is None:
+        logger.warning(
+            "optimizer: no valid candidate found for topic %r — skipping",
+            topic,
+        )
+        return None, all_essays
     return best_ever, all_essays
