@@ -15,6 +15,7 @@ import sys
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TextIO
 
 import yaml
 
@@ -22,8 +23,13 @@ from cotrain.data_manager import CotrainDataManager
 from cotrain.goodhart import goodhart_check
 from cotrain.pair_logger import PairLogger
 from cotrain.stopping import should_stop
+from deslop.drift_coef_opt import (
+    append_deslop_round_to_feature_pool,
+    load_optimized_drift_weights,
+    run_drift_coef_optimization_from_config_section,
+)
 from deslop.optimizer import optimize
-from deslop.similarity import drift_options_from_config
+from deslop.similarity import DriftWeights, drift_options_from_config
 from deslop.prompt_bank import PromptCandidate
 from deslop.run_topic import make_groq_essay_fn
 from detector.model import SlopDetector
@@ -31,6 +37,38 @@ from detector.model import SlopDetector
 
 def _log(msg: str) -> None:
     print(msg, flush=True)
+
+
+class _TeeStdout:
+    """Mirror ``sys.stdout`` writes to a UTF-8 log file (flush per write for live tail)."""
+
+    __slots__ = ("_orig", "_log")
+
+    def __init__(self, original: TextIO, log_path: Path) -> None:
+        self._orig = original
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        self._log = log_path.open("w", encoding="utf-8", buffering=1)
+
+    def write(self, data: str) -> int:
+        self._orig.write(data)
+        self._orig.flush()
+        self._log.write(data)
+        self._log.flush()
+        return len(data)
+
+    def flush(self) -> None:
+        self._orig.flush()
+        self._log.flush()
+
+    def isatty(self) -> bool:
+        return self._orig.isatty()
+
+    def fileno(self) -> int:
+        return self._orig.fileno()
+
+    def close_log(self) -> None:
+        self._log.flush()
+        self._log.close()
 
 
 def load_topic_sources_index(path: Path) -> tuple[dict[str, str], dict[str, float]]:
@@ -295,7 +333,7 @@ def cotrain(
     groq_model: str = "llama-3.3-70b-versatile",
     mutator_groq_model: str | None = None,
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
-    lambda_semantic: float = 0.3,
+    semantic_similarity_weight: float = 0.3,
     constraint_kwargs: dict | None = None,
     chunked_scoring: bool = True,
     chunk_window_tokens: int | None = None,
@@ -319,6 +357,7 @@ def cotrain(
     few_shot_pool_path: Path | None = None,
     colab_mode: bool = False,
     colab_checkpoint_path: Path | None = None,
+    drift_coef_opt_config: dict | None = None,
 ) -> list[dict]:
     """
     Co-training loop: deslop optimization each round; optional detector retrain via
@@ -335,6 +374,12 @@ def cotrain(
     mutator_groq_model = mutator_groq_model or groq_model
     constraint_kwargs = constraint_kwargs or {}
     drift_kw = dict(drift_optimize_kwargs or {})
+    repo_root = Path(__file__).resolve().parent.parent
+    dco_cfg = dict(drift_coef_opt_config or {})
+    dco_enabled = bool(dco_cfg.get("enabled"))
+    dco_out = Path(
+        dco_cfg.get("optimized_output_path", "outputs/cotrain/optimized_drift_coefs.json")
+    )
     mode_norm = str(detector_mode or "static").strip().lower()
     # Only explicit ``adaptive`` runs detector/train.py; unknown modes default to no retrain.
     detector_train_this_round = mode_norm == "adaptive" and not bool(skip_detector_retrain)
@@ -388,6 +433,29 @@ def cotrain(
     )
 
     for r in range(1, num_rounds + 1):
+        # Feedback loop (Idea 3 → future rounds): learned drift coefficients override YAML defaults.
+        if dco_enabled:
+            loaded_w = load_optimized_drift_weights(dco_out)
+            if loaded_w:
+                drift_kw = dict(drift_kw)
+                drift_kw["drift_weights"] = DriftWeights(
+                    alpha_semantic=loaded_w["alpha_semantic"],
+                    alpha_rouge=loaded_w["alpha_rouge"],
+                    alpha_bertscore=loaded_w["alpha_bertscore"],
+                )
+                _log(
+                    json.dumps(
+                        {
+                            "drift_coef_round_start": {
+                                "round": r,
+                                "alpha_semantic": loaded_w["alpha_semantic"],
+                                "alpha_rouge": loaded_w["alpha_rouge"],
+                                "alpha_bertscore": loaded_w["alpha_bertscore"],
+                            }
+                        }
+                    )
+                )
+
         sampled = random.sample(topics, min(topics_per_round, len(topics)))
         fool_essays: list[dict] = []
         best_slops: list[float] = []
@@ -451,7 +519,7 @@ def cotrain(
                 pair_logger=pair_logger,
                 log_path=detector_output_root / f"deslop_r{r}.jsonl",
                 cotrain_round=r,
-                lambda_semantic=lambda_semantic,
+                semantic_similarity_weight=semantic_similarity_weight,
                 mutator_groq_model=mutator_groq_model,
                 embedding_model_name=embedding_model,
                 constraint_kwargs=constraint_kwargs,
@@ -648,6 +716,7 @@ def cotrain(
         round_logs.append(summary)
         with summary_path.open("a", encoding="utf-8") as sf:
             sf.write(json.dumps(summary) + "\n")
+            sf.flush()
 
         if colab_mode:
             _write_colab_round_checkpoint(
@@ -658,6 +727,13 @@ def cotrain(
                 checkpoint=current_ckpt,
                 fewshot_pool_size=len(fewshot_pool) if few_shot_enabled else 0,
             )
+
+        if dco_enabled and dco_cfg.get("run_after_each_round", True):
+            pool_path = Path(dco_cfg.get("features_jsonl", "outputs/cotrain/drift_features_holdout.jsonl"))
+            round_log = detector_output_root / f"deslop_r{r}.jsonl"
+            n_new = append_deslop_round_to_feature_pool(round_log, pool_path)
+            _log(json.dumps({"drift_coef_opt_pool_append": n_new, "round": r}))
+            run_drift_coef_optimization_from_config_section(dco_cfg, repo_root=repo_root)
 
         if should_stop(round_logs, patience=stop_patience, epsilon=stop_epsilon):
             break
@@ -725,8 +801,33 @@ def main() -> None:
         default=None,
         help="Cap detector training rows (<=0 disables). Smoke mode sets a default from cotrain.yaml.",
     )
+    ap.add_argument(
+        "--log-file",
+        type=Path,
+        nargs="?",
+        const=Path("outputs/cotrain/run.log"),
+        default=None,
+        help=(
+            "Tee stdout to this file (line-buffered) for monitoring while the notebook cell runs. "
+            "Pass a path, or use bare --log-file for outputs/cotrain/run.log."
+        ),
+    )
     args = ap.parse_args()
 
+    tee: _TeeStdout | None = None
+    if args.log_file is not None:
+        tee = _TeeStdout(sys.stdout, args.log_file)
+        sys.stdout = tee
+
+    try:
+        _cotrain_main_after_parse(args)
+    finally:
+        if tee is not None:
+            sys.stdout = tee._orig
+            tee.close_log()
+
+
+def _cotrain_main_after_parse(args) -> None:
     cfg_path = args.config
     if not cfg_path.is_file():
         raise SystemExit(f"Config not found: {cfg_path}")
@@ -866,7 +967,9 @@ def main() -> None:
         groq_model=groq_model,
         mutator_groq_model=str(cfg.get("mutator_groq_model", groq_model)),
         embedding_model=str(cfg.get("embedding_model", "sentence-transformers/all-MiniLM-L6-v2")),
-        lambda_semantic=float(cfg.get("lambda_semantic", 0.3)),
+        semantic_similarity_weight=float(
+            cfg.get("semantic_similarity_weight", cfg.get("lambda_semantic", 0.3))
+        ),
         constraint_kwargs=constraint_kwargs,
         chunked_scoring=bool(cfg.get("chunked_scoring", True)),
         chunk_window_tokens=cfg.get("chunk_window_tokens"),
@@ -894,6 +997,7 @@ def main() -> None:
         few_shot_pool_path=few_shot_pool_path,
         colab_mode=colab_mode,
         colab_checkpoint_path=colab_checkpoint_path,
+        drift_coef_opt_config=cfg.get("drift_coef_opt"),
     )
     _log(json.dumps({"rounds_completed": len(logs), "last": logs[-1] if logs else None}))
 

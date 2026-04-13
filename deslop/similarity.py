@@ -40,11 +40,16 @@ _rouge_scorer: Any = None
 
 @dataclass
 class DriftWeights:
-    """Non-negative λ weights on drift components (each drift term is in [0, 1])."""
+    """
+    Non-negative drift penalty coefficients (each drift term is in [0, 1] before weighting).
 
-    lambda_semantic: float = 1.0
-    lambda_rouge_l: float = 0.35
-    lambda_bertscore: float = 0.5
+    Named ``alpha_*`` to avoid collision with unrelated uses of ``lambda`` in ML and with
+    the Lambda Labs cloud provider. YAML keys use ``drift_coef_*`` (see ``drift_options_from_config``).
+    """
+
+    alpha_semantic: float = 1.0
+    alpha_rouge: float = 0.35
+    alpha_bertscore: float = 0.5
 
 
 def _get_embedder(model_name: str) -> Any:
@@ -221,9 +226,9 @@ def composite_drift_penalty(
     details["drift_bertscore"] = d_bert
 
     penalty = (
-        w.lambda_semantic * d_sem
-        + w.lambda_rouge_l * d_r
-        + (w.lambda_bertscore * d_bert if include_bert else 0.0)
+        w.alpha_semantic * d_sem
+        + w.alpha_rouge * d_r
+        + (w.alpha_bertscore * d_bert if include_bert else 0.0)
     )
     details["drift_penalty_total"] = penalty
     return penalty, details
@@ -243,10 +248,26 @@ def drift_options_from_config(cfg: dict[str, Any]) -> dict[str, Any]:
     if mode is not None and mode not in ("topic", "source_passage"):
         raise ValueError("alignment_reference_mode must be null, 'topic', or 'source_passage'")
     d = cfg.get("drift") or {}
+    # Backward compatibility: older YAML used lambda_* under ``drift`` for penalty coefficients.
     dw = DriftWeights(
-        lambda_semantic=float(d.get("lambda_semantic", 1.0)),
-        lambda_rouge_l=float(d.get("lambda_rouge_l", 0.35)),
-        lambda_bertscore=float(d.get("lambda_bertscore", 0.5)),
+        alpha_semantic=float(
+            d.get(
+                "drift_coef_semantic",
+                d.get("alpha_semantic", d.get("lambda_semantic", 1.0)),
+            )
+        ),
+        alpha_rouge=float(
+            d.get(
+                "drift_coef_rouge",
+                d.get("alpha_rouge", d.get("lambda_rouge_l", 0.35)),
+            )
+        ),
+        alpha_bertscore=float(
+            d.get(
+                "drift_coef_bertscore",
+                d.get("alpha_bertscore", d.get("lambda_bertscore", 0.5)),
+            )
+        ),
     )
     gate = d.get("bertscore_slop_gate")
     aps = cfg.get("alignment_source_passage")

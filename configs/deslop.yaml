@@ -13,7 +13,8 @@ population_size: 6
 generations: 4
 essays_per_candidate: 2
 essay_temperature: 0.9
-lambda_semantic: 0.3
+# Fitness tradeoff in evolutionary selection: -mean_optimization_slop + weight * mean_topic_similarity
+semantic_similarity_weight: 0.3
 
 # Detector scoring for generated essays (essay-length)
 chunked_scoring: true
@@ -38,12 +39,37 @@ alignment_reference_mode: null
 #   Paste the original AI-generated passage to stay aligned with when optimizing prompts.
 alignment_source_passage: null
 drift:
-  lambda_semantic: 1.0
-  lambda_rouge_l: 0.35
-  lambda_bertscore: 0.5
+  # Drift penalty coefficients (topic / passage alignment). YAML keys drift_coef_* avoid confusion
+  # with unrelated uses of "lambda" and with Lambda Labs (cloud.lambda.ai).
+  drift_coef_semantic: 1.0
+  drift_coef_rouge: 0.35
+  drift_coef_bertscore: 0.5
   use_bertscore: false
   # If set, BERTScore term runs only when raw detector_slop <= this (lower = better).
   bertscore_slop_gate: 0.42
+
+# Optional: JSON from drift_coef_opt / co-training (overrides drift_coef_* for this run).
+optimized_drift_coefs_path: null
+
+# Optional: numerical search for drift penalty coefficients (see deslop/drift_coef_opt.py).
+# Features JSONL rows: detector_slop, drift_semantic, drift_rouge_l, drift_bertscore [, pair_row_id].
+drift_coef_opt:
+  enabled: false
+  features_jsonl: outputs/cotrain/drift_features_holdout.jsonl
+  split_manifest_path: outputs/cotrain/splits/rewriter_split_manifest.json
+  split_for_optimization: test
+  slop_threshold: 0.5
+  sigmoid_temperature: 40.0
+  grid_semantic: [0.5, 1.0, 1.5]
+  grid_rouge: [0.2, 0.35, 0.5]
+  grid_bertscore: [0.0, 0.25, 0.5]
+  adam_steps: 150
+  adam_lr: 0.08
+  optimized_output_path: outputs/cotrain/optimized_drift_coefs.json
+  trajectory_jsonl: outputs/cotrain/drift_coef_opt_trajectory.jsonl
+  sensitivity_grid: [0.25, 0.5, 0.75, 1.0, 1.25, 1.5]
+  wandb_project: promptlab-v2
+  wandb_entity: null
 
 # groq_model — essay generation (run_topic: make_groq_essay_fn).
 # mutator_groq_model — prompt mutations only (optimize → refill_population → mutate_prompt).

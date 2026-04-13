@@ -36,7 +36,7 @@ groq_model: "llama-3.3-70b-versatile"
 essay_temperature: 0.9
 mutator_groq_model: "llama-3.1-8b-instant"
 embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
-lambda_semantic: 0.3
+semantic_similarity_weight: 0.3
 min_words: 150
 max_words: 2000
 min_topic_similarity: 0.3
@@ -62,11 +62,34 @@ topic_sources_auto_path: "outputs/cotrain/topic_sources_auto.jsonl"
 # topic_sources_jsonl: "data/cotrain/topic_sources.jsonl"
 alignment_source_passage: null
 drift:
-  lambda_semantic: 1.0
-  lambda_rouge_l: 0.35
-  lambda_bertscore: 0.5
+  drift_coef_semantic: 1.0
+  drift_coef_rouge: 0.35
+  drift_coef_bertscore: 0.5
   use_bertscore: false
   bertscore_slop_gate: 0.42
+
+# When enabled, after each co-training round we re-fit drift penalty coefficients on a held-out
+# feature set (see drift_coef_opt.features_jsonl). Optimized values are written to
+# optimized_output_path and merged into the next round's deslop drift kwargs.
+# Feedback loop: better coefficients → better evolutionary prompts → more rewriter pairs.
+drift_coef_opt:
+  enabled: false
+  run_after_each_round: true
+  features_jsonl: outputs/cotrain/drift_features_holdout.jsonl
+  split_manifest_path: outputs/cotrain/splits/rewriter_split_manifest.json
+  split_for_optimization: test
+  slop_threshold: 0.5
+  sigmoid_temperature: 40.0
+  grid_semantic: [0.5, 1.0, 1.5]
+  grid_rouge: [0.2, 0.35, 0.5]
+  grid_bertscore: [0.0, 0.25, 0.5]
+  adam_steps: 150
+  adam_lr: 0.08
+  optimized_output_path: outputs/cotrain/optimized_drift_coefs.json
+  trajectory_jsonl: outputs/cotrain/drift_coef_opt_trajectory.jsonl
+  sensitivity_grid: [0.25, 0.5, 0.75, 1.0, 1.25, 1.5]
+  wandb_project: promptlab-v2
+  wandb_entity: null
 
 # Initial / static detector checkpoint (HF id or local path)
 initial_detector_checkpoint: "pangram/editlens_roberta-large"

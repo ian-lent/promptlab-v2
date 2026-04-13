@@ -70,9 +70,9 @@ def fitness_from_scores(
     mean_slop: float,
     mean_semantic_sim: float,
     *,
-    lambda_semantic: float = 0.3,
+    semantic_similarity_weight: float = 0.3,
     failed: bool = False,
 ) -> float:
     if failed:
         return float("-inf")
-    return -mean_slop + lambda_semantic * mean_semantic_sim
+    return -mean_slop + semantic_similarity_weight * mean_semantic_sim

@@ -16,8 +16,9 @@ from typing import Any
 
 import yaml
 
+from deslop.drift_coef_opt import load_optimized_drift_weights
 from deslop.optimizer import optimize
-from deslop.similarity import drift_options_from_config
+from deslop.similarity import DriftWeights, drift_options_from_config
 from detector.model import SlopDetector
 
 
@@ -87,6 +88,18 @@ def main() -> None:
 
     log_path = Path(cfg.get("optimization_log_jsonl", "outputs/deslop/runs.jsonl"))
 
+    drift_kw = drift_options_from_config(cfg)
+    ocp = cfg.get("optimized_drift_coefs_path")
+    if ocp:
+        loaded = load_optimized_drift_weights(Path(ocp))
+        if loaded:
+            drift_kw = dict(drift_kw)
+            drift_kw["drift_weights"] = DriftWeights(
+                alpha_semantic=loaded["alpha_semantic"],
+                alpha_rouge=loaded["alpha_rouge"],
+                alpha_bertscore=loaded["alpha_bertscore"],
+            )
+
     best, essays = optimize(
         topic,
         target_llm,
@@ -94,7 +107,9 @@ def main() -> None:
         population_size=int(cfg.get("population_size", 6)),
         generations=int(cfg.get("generations", 4)),
         essays_per_candidate=int(cfg.get("essays_per_candidate", 2)),
-        lambda_semantic=float(cfg.get("lambda_semantic", 0.3)),
+        semantic_similarity_weight=float(
+            cfg.get("semantic_similarity_weight", cfg.get("lambda_semantic", 0.3))
+        ),
         log_path=log_path,
         mutator_groq_model=str(
             cfg.get("mutator_groq_model", cfg.get("groq_model", "llama-3.1-8b-instant"))
@@ -112,7 +127,7 @@ def main() -> None:
         chunk_aggregate=str(cfg.get("chunk_aggregate", "weighted")),
         chunk_weight_mean=float(cfg.get("chunk_weight_mean", 0.5)),
         chunk_weight_max=float(cfg.get("chunk_weight_max", 0.5)),
-        **drift_options_from_config(cfg),
+        **drift_kw,
     )
 
     print(json.dumps({"best_prompt_id": best.id, "best_fitness": best.fitness, "n_essays": len(essays)}))

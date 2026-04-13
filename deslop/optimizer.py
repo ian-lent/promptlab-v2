@@ -71,7 +71,7 @@ def optimize(
     essays_per_candidate: int = 3,
     pair_logger: Any = None,
     *,
-    lambda_semantic: float = 0.3,
+    semantic_similarity_weight: float = 0.3,
     log_path: Path | None = None,
     mutator_groq_model: str = "llama-3.1-8b-instant",
     embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
@@ -244,7 +244,10 @@ def optimize(
             mean_raw_slop = sum(raw_slops) / max(1, len(raw_slops))
             mean_sim = sum(sims) / max(1, len(sims))
             fit = fitness_from_scores(
-                mean_slop, mean_sim, lambda_semantic=lambda_semantic, failed=failed_any
+                mean_slop,
+                mean_sim,
+                semantic_similarity_weight=semantic_similarity_weight,
+                failed=failed_any,
             )
             cand.fitness = fit
             scored.append((cand, mean_slop, mean_sim, fit, mean_raw_slop))

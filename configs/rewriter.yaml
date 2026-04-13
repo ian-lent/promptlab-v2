@@ -1,15 +1,50 @@
-# Prompt rewriter (QLoRA on Llama-3.2-3B) — supervised stage
-base_model: "meta-llama/Llama-3.2-3B-Instruct"
-# Requires HF access to Llama weights
-output_dir: "outputs/rewriter_lora"
-max_seq_length: 1024
-per_device_train_batch_size: 8
-gradient_accumulation_steps: 4
-learning_rate: 1.0e-4
-num_train_epochs: 4
-lora_r: 16
-lora_alpha: 32
-lora_dropout: 0.05
+# T5 + LoRA rewriter (Idea 2) — train with:
+#   uv run python rewriter/train.py --config configs/rewriter.yaml
+#
+# Split manifest is shared with drift-coefficient optimization (Idea 3): `test` IDs are held out
+# of rewriter training and should be the only rows used when exporting drift feature rows for coef search.
 
-pairs_jsonl: "outputs/rewriter/train_pairs.jsonl"
-eval_split: 0.15
+pairs_jsonl: outputs/cotrain/prompt_pairs.jsonl
+split_manifest_path: outputs/cotrain/splits/rewriter_split_manifest.json
+split_seed: 42
+train_frac: 0.7
+val_frac: 0.15
+force_rebuild_split: false
+
+base_model: t5-base
+output_dir: outputs/rewriter/t5_lora_r8
+
+# LoRA rank ablation: set to 4, 8, or 16 across separate runs / W&B runs.
+lora_r: 8
+lora_alpha: 16
+lora_dropout: 0.05
+lora_target_modules: ["q", "v"]
+
+max_input_length: 512
+max_target_length: 512
+per_device_train_batch_size: 4
+per_device_eval_batch_size: 4
+learning_rate: 0.0003
+num_train_epochs: 5
+weight_decay: 0.01
+warmup_ratio: 0.06
+lr_scheduler_type: cosine
+logging_steps: 20
+eval_strategy: steps
+eval_steps: 200
+save_steps: 500
+save_total_limit: 2
+load_best_model_at_end: true
+metric_for_best_model: loss
+bf16: true
+seed: 42
+
+# Rewriter slop metric (optional Groq + detector)
+detector_checkpoint: pangram/editlens_roberta-large
+groq_model: llama-3.3-70b-versatile
+essay_temperature: 0.9
+rewriter_slop_eval_n: 4
+
+wandb_project: promptlab-v2
+wandb_entity: null
+wandb_run_name: null
