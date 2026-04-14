@@ -340,7 +340,10 @@ class RewriterDataset(Dataset):
 
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         r = self.rows[idx]
-        src = str(r.get("input_prompt", r.get("input", ""))).strip()
+        # Support multiple upstream schemas (organic + synthetic + misc exporters).
+        src = str(
+            r.get("input_prompt", r.get("input", r.get("instruction", "")))
+        ).strip()
         tgt_raw = str(r.get("output_prompt", r.get("output", ""))).strip()
         topic = str(r.get("topic", "")).strip()
         # Some synthetic sources may store canonical templates; instantiate here if needed.

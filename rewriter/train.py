@@ -24,6 +24,7 @@ from typing import Any
 import torch
 import yaml
 from peft import LoraConfig, TaskType, get_peft_model
+from torch.utils.data import WeightedRandomSampler
 from transformers import (
     AutoModelForSeq2SeqLM,
     AutoTokenizer,
@@ -306,7 +307,7 @@ def train_from_config(cfg_path: Path, *, overrides: list[str] | None = None) -> 
     # Optionally mix in synthetic sources for training only.
     train_sampler = None
     if mix_enabled:
-        mixed_rows, sampler = mix_sources(cfg, repo_root=repo_root)
+        mixed_rows, _sampler = mix_sources(cfg, repo_root=repo_root)
         # Keep only organic split IDs for train/val; add synthetic rows to train only.
         train_ids = set(manifest.get("splits", {}).get("train", []))
         val_ids = set(manifest.get("splits", {}).get("val", []))
@@ -320,7 +321,16 @@ def train_from_config(cfg_path: Path, *, overrides: list[str] | None = None) -> 
             else:
                 mixed_train.append(r)
         train_rows = mixed_train
-        train_sampler = sampler
+        # Rebuild sampler to align exactly with the final train_rows list.
+        weights_cfg = dict(cfg.get("data_mix_weights") or {})
+        source_weight = {
+            "organic": float(weights_cfg.get("organic", 1.0)),
+            "alpaca": float(weights_cfg.get("alpaca", 0.4)),
+            "cross_topic": float(weights_cfg.get("cross_topic", 0.7)),
+            "augmented": float(weights_cfg.get("augmented", 0.3)),
+        }
+        w = [source_weight.get(str(r.get("source", "organic")), 1.0) for r in train_rows]
+        train_sampler = WeightedRandomSampler(weights=w, num_samples=len(w), replacement=True)
         # val remains organic-only for comparability
         val_rows = [r for r in organic_pairs if pair_row_id(r) in val_ids]
 
