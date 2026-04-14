@@ -37,22 +37,29 @@ def _medoid_index(cluster_embs: torch.Tensor) -> int:
     return int(torch.argmin(mean_d).item())
 
 
+def _normalize_canonical_placeholders(template: str) -> str:
+    """Mutation pipeline may use ``<topic>``; downstream expects ``{topic}``."""
+    return template.replace("<topic>", "{topic}")
+
+
 def _canonicalize_template(prompt: str, *, topic: str) -> tuple[str, bool]:
     """
     Replace the literal topic substring with '{topic}' when possible.
+    Normalizes any ``<topic>`` placeholders to ``{topic}`` before returning.
     """
     t = (topic or "").strip()
     if not t:
-        return prompt, False
+        return _normalize_canonical_placeholders(prompt), False
     if t in prompt:
-        return prompt.replace(t, "{topic}"), True
+        return _normalize_canonical_placeholders(prompt.replace(t, "{topic}")), True
     # simple fallback: try case-insensitive replacement
     low_p = prompt.lower()
     low_t = t.lower()
     i = low_p.find(low_t)
     if i >= 0:
-        return prompt[:i] + "{topic}" + prompt[i + len(t) :], True
-    return prompt, False
+        out = prompt[:i] + "{topic}" + prompt[i + len(t) :]
+        return _normalize_canonical_placeholders(out), True
+    return _normalize_canonical_placeholders(prompt), False
 
 
 def _load_cfg(path: Path) -> dict[str, Any]:
@@ -125,10 +132,7 @@ def main() -> None:
         mid_i = idxs[mid_local]
         medoid_prompt = out_prompts[mid_i]
         medoid_topic = topics[mid_i]
-        canonical_template, replaced = _canonicalize_template(medoid_prompt, topic=medoid_topic)
-        if not replaced and "{topic}" not in canonical_template:
-            # Keep output stable but signal in report.
-            canonical_template = canonical_template
+        canonical_template, _replaced = _canonicalize_template(medoid_prompt, topic=medoid_topic)
         member_ids = [pair_ids[i] for i in idxs]
         member_topics = [topics[i] for i in idxs if topics[i]]
         if len(idxs) < 3:
@@ -144,6 +148,11 @@ def main() -> None:
                 # Downstream helpers (not required by schema, but useful).
                 "centroid": centroids[cid].tolist(),
             }
+        )
+
+    for c in clusters:
+        c["canonical_template"] = _normalize_canonical_placeholders(
+            str(c.get("canonical_template", ""))
         )
 
     out_obj = {"k": k, "clusters": clusters}
