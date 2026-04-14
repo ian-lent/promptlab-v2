@@ -24,8 +24,8 @@ few_shot_pool_path: "outputs/cotrain/fewshot_pool.jsonl"
 colab_mode: true
 colab_checkpoint_path: "outputs/cotrain/colab_checkpoint.json"
 
-num_rounds: 2
-topics_per_round: 6
+num_rounds: 3
+topics_per_round: 10
 population_size: 5
 generations_per_topic: 3
 essays_per_candidate: 2
@@ -111,8 +111,5 @@ round_summary_path: "outputs/cotrain/round_summaries.jsonl"
 stop_patience: 2
 stop_epsilon: 0.02
 
-# Pair log metadata: origin of topic strings (e.g. original bundled pool vs external file).
-topic_source: original
-
-# Topics file: YAML with ``topics: [str, ...]`` or plain text one topic per line; null uses bundled seeds.
-topics_file: null
+topic_source: alpaca_diverse
+topics_file: configs/topics_alpaca_diverse.yaml

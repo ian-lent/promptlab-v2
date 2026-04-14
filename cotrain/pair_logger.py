@@ -22,12 +22,15 @@ class PairLogger:
         parent_score: float,
         child_score: float,
         round_num: int,
+        *,
+        topic_source: str = "original",
     ) -> None:
         """Log when child slop score improves (lower is better)."""
         if child_score >= parent_score:
             return
         record = {
             "topic": topic,
+            "topic_source": topic_source,
             "input_prompt": parent_prompt.full_text(),
             "output_prompt": child_prompt.full_text(),
             "input_slop_score": parent_score,
@@ -46,6 +49,8 @@ class PairLogger:
         trajectory: list[PromptCandidate],
         round_num: int,
         scores: list[float] | None = None,
+        *,
+        topic_source: str = "original",
     ) -> None:
         """
         Log consecutive pairs along a trajectory. If scores aligned with trajectory,
@@ -56,10 +61,18 @@ class PairLogger:
         for i in range(len(trajectory) - 1):
             a, b = trajectory[i], trajectory[i + 1]
             sa, sb = scores[i], scores[i + 1]
-            self.log_improvement(topic, a, b, sa, sb, round_num)
+            self.log_improvement(
+                topic, a, b, sa, sb, round_num, topic_source=topic_source
+            )
         if len(trajectory) >= 2:
             self.log_improvement(
-                topic, trajectory[0], trajectory[-1], scores[0], scores[-1], round_num
+                topic,
+                trajectory[0],
+                trajectory[-1],
+                scores[0],
+                scores[-1],
+                round_num,
+                topic_source=topic_source,
             )
 
     def get_pairs(self, min_improvement: float = 0.05) -> list[dict]:

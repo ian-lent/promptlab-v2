@@ -293,6 +293,42 @@ def _deslop_slop_stats(scores: list[float], threshold: float) -> dict:
     }
 
 
+def _resolve_topics_file_path(topics_file: str, cotrain_config_path: Path) -> Path:
+    """Resolve ``topics_file`` relative to CWD or the co-training config file directory."""
+    p = Path(topics_file)
+    if p.is_absolute():
+        return p
+    rel = Path(topics_file)
+    cwd_candidate = (Path.cwd() / rel).resolve()
+    if cwd_candidate.is_file():
+        return cwd_candidate
+    cfg_dir_candidate = (cotrain_config_path.resolve().parent / rel).resolve()
+    if cfg_dir_candidate.is_file():
+        return cfg_dir_candidate
+    return cwd_candidate
+
+
+def _load_topics_from_file(path: Path) -> list[str]:
+    """
+    Load topic strings from a plain-text file (one per line) or YAML with a top-level
+    ``topics:`` list (e.g. ``configs/topics_alpaca_diverse.yaml``).
+    """
+    path = path.resolve()
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    if path.suffix.lower() in (".yaml", ".yml"):
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(doc, dict):
+            raise SystemExit(f"topics_file YAML {path} must be a mapping with a 'topics' list.")
+        raw = doc.get("topics")
+        if raw is None:
+            raise SystemExit(f"topics_file YAML {path} has no 'topics' key.")
+        if not isinstance(raw, list):
+            raise SystemExit(f"topics_file {path}: 'topics' must be a list of strings.")
+        return [str(t).strip() for t in raw if str(t).strip()]
+    return [ln.strip() for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+
 def _default_topics(n: int) -> list[str]:
     pool = [
         "the ethics of AI in education",
@@ -358,6 +394,7 @@ def cotrain(
     colab_mode: bool = False,
     colab_checkpoint_path: Path | None = None,
     drift_coef_opt_config: dict | None = None,
+    topic_source: str = "original",
 ) -> list[dict]:
     """
     Co-training loop: deslop optimization each round; optional detector retrain via
@@ -590,6 +627,7 @@ def cotrain(
                 parent_score=1.0,
                 child_score=min((e["slop_score"] for e in essays if e.get("constraint_ok")), default=1.0),
                 round_num=r,
+                topic_source=topic_source,
             )
 
             fool_ok = [
@@ -852,8 +890,19 @@ def _cotrain_main_after_parse(args) -> None:
 
     topics = _default_topics(max(30, int(cfg.get("topics_per_round", 20)) * 2))
     tf = cfg.get("topics_file")
-    if tf and Path(tf).exists():
-        topics = [ln.strip() for ln in Path(tf).read_text(encoding="utf-8").splitlines() if ln.strip()]
+    if tf is not None and str(tf).strip():
+        tpath = _resolve_topics_file_path(str(tf).strip(), cfg_path)
+        if not tpath.is_file():
+            raise SystemExit(f"topics_file not found: {tpath} (configured as {tf!r})")
+        topics = _load_topics_from_file(tpath)
+        _log(
+            json.dumps(
+                {
+                    "cotrain_topics_file": str(tpath),
+                    "n_topics_loaded": len(topics),
+                }
+            )
+        )
 
     num_rounds = int(cfg.get("num_rounds", 5))
     topics_per_round = int(cfg.get("topics_per_round", 20))
@@ -1015,6 +1064,7 @@ def _cotrain_main_after_parse(args) -> None:
         colab_mode=colab_mode,
         colab_checkpoint_path=colab_checkpoint_path,
         drift_coef_opt_config=cfg.get("drift_coef_opt"),
+        topic_source=str(cfg.get("topic_source", "original")),
     )
     _log(json.dumps({"rounds_completed": len(logs), "last": logs[-1] if logs else None}))
 
