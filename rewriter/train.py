@@ -61,18 +61,19 @@ class WeightedMixTrainer(Seq2SeqTrainer):
         self._semantic_loss_weight = float(semantic_loss_weight or 0.0)
 
     def get_train_dataloader(self):
-        dl = super().get_train_dataloader()
         if self._train_sampler is None:
-            return dl
-        # Rebuild with our sampler (keeping batch size/collator/workers settings from HF).
-        return torch.utils.data.DataLoader(
+            return super().get_train_dataloader()
+        from torch.utils.data import DataLoader
+
+        args = self.args
+        return DataLoader(
             self.train_dataset,
-            batch_size=dl.batch_size,
+            batch_size=args.per_device_train_batch_size,
             sampler=self._train_sampler,
-            collate_fn=dl.collate_fn,
-            drop_last=getattr(dl, "drop_last", False),
-            num_workers=getattr(dl, "num_workers", 0),
-            pin_memory=getattr(dl, "pin_memory", False),
+            collate_fn=self.data_collator,
+            drop_last=args.dataloader_drop_last,
+            num_workers=args.dataloader_num_workers,
+            pin_memory=args.dataloader_pin_memory,
         )
 
     @classmethod
