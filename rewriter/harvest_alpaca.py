@@ -73,6 +73,7 @@ def _word_count(s: str) -> int:
 def _nearest_cluster_id(vec: torch.Tensor, centroids: torch.Tensor) -> int:
     v = torch.nn.functional.normalize(vec, p=2, dim=0)
     c = torch.nn.functional.normalize(centroids, p=2, dim=1)
+    c = c.to(v.device)
     sims = c @ v
     return int(torch.argmax(sims).item())
 
@@ -182,6 +183,7 @@ def main() -> None:
     if not isinstance(resp_embs, torch.Tensor):
         resp_embs = torch.tensor(resp_embs)
     resp_embs = resp_embs.float()
+    centroids = centroids.to(resp_embs.device)
 
     out_path = repo_root / "outputs" / "cotrain" / "prompt_pairs_alpaca.jsonl"
     out_path.parent.mkdir(parents=True, exist_ok=True)
