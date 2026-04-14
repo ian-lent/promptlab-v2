@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+import yaml
 from peft import PeftModel
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
@@ -36,6 +37,10 @@ def rewrite_prompt(
 ) -> str:
     """
     Map ``input_prompt → output_prompt`` in one forward pass (plus beam search).
+
+    ``max_new_tokens`` should be at least **256** so long evolved prompts are not truncated;
+    match ``generation_max_new_tokens`` in ``configs/rewriter.yaml`` (often 512 with
+    ``max_target_length``).
 
     Optimization rationale: beam search is a cheap deterministic proxy for the evolutionary
     search that produced labels; it reduces variance when reporting rewriter slop in W&B.
@@ -68,9 +73,21 @@ def main() -> None:
     p = argparse.ArgumentParser(description="Run T5 rewriter (base + LoRA adapter).")
     p.add_argument("--base-model", type=str, default="t5-base")
     p.add_argument("--adapter", type=Path, required=True)
+    p.add_argument("--config", type=Path, default=None, help="Optional rewriter.yaml for defaults.")
+    p.add_argument("--max-new-tokens", type=int, default=None, help="Decoder cap (default: 512 or config).")
     p.add_argument("--prompt", type=str, default=None)
     p.add_argument("--prompt-file", type=Path, default=None)
     args = p.parse_args()
+
+    max_new = 512
+    if args.config and args.config.is_file():
+        rcfg = yaml.safe_load(args.config.read_text(encoding="utf-8"))
+        max_new = int(
+            rcfg.get("generation_max_new_tokens", rcfg.get("max_target_length", max_new))
+        )
+    if args.max_new_tokens is not None:
+        max_new = int(args.max_new_tokens)
+    max_new = max(256, max_new)
 
     text = args.prompt or ""
     if args.prompt_file:
@@ -84,7 +101,7 @@ def main() -> None:
     model = PeftModel.from_pretrained(base, str(args.adapter))
     model.to(device)
     model.eval()
-    out = rewrite_prompt(text, model, tok, device=device)
+    out = rewrite_prompt(text, model, tok, device=device, max_new_tokens=max_new)
     print(out)
 
 

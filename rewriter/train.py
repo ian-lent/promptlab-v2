@@ -66,6 +66,8 @@ class RewriterSlopCallback(TrainerCallback):
         device: torch.device,
         eval_strategy: str,
         eval_steps: int,
+        generation_max_new_tokens: int,
+        max_input_length: int,
     ) -> None:
         self.val_rows = val_rows[:sample_n]
         self.tokenizer = tokenizer
@@ -75,6 +77,8 @@ class RewriterSlopCallback(TrainerCallback):
         self.device = device
         self.eval_strategy = eval_strategy
         self.eval_steps = eval_steps
+        self.generation_max_new_tokens = generation_max_new_tokens
+        self.max_input_length = max_input_length
         self._detector = None
         self._groq_fn = None
         self._logged_schedule = False
@@ -123,7 +127,8 @@ class RewriterSlopCallback(TrainerCallback):
                 model,
                 self.tokenizer,
                 device=self.device,
-                max_input_length=512,
+                max_input_length=self.max_input_length,
+                max_new_tokens=self.generation_max_new_tokens,
             )
             essay_prompt = apply_topic_placeholder(rw, topic or "the assigned topic")
             try:
@@ -250,6 +255,9 @@ def train_from_config(cfg_path: Path, *, overrides: list[str] | None = None) -> 
 
     eval_strategy = str(cfg.get("eval_strategy", "steps"))
     eval_steps = int(cfg.get("eval_steps", 200))
+    max_in_len = int(cfg.get("max_input_length", 512))
+    gen_max = int(cfg.get("generation_max_new_tokens", cfg.get("max_target_length", 512)))
+    gen_max = max(256, gen_max)
     slop_callback = RewriterSlopCallback(
         val_rows=val_rows,
         tokenizer=tok,
@@ -260,6 +268,8 @@ def train_from_config(cfg_path: Path, *, overrides: list[str] | None = None) -> 
         device=device,
         eval_strategy=eval_strategy,
         eval_steps=eval_steps,
+        generation_max_new_tokens=gen_max,
+        max_input_length=max_in_len,
     )
 
     ta: dict[str, Any] = {
@@ -269,7 +279,6 @@ def train_from_config(cfg_path: Path, *, overrides: list[str] | None = None) -> 
         "learning_rate": float(cfg.get("learning_rate", 3e-4)),
         "num_train_epochs": float(cfg.get("num_train_epochs", 5)),
         "weight_decay": float(cfg.get("weight_decay", 0.01)),
-        "warmup_ratio": float(cfg.get("warmup_ratio", 0.06)),
         "lr_scheduler_type": str(cfg.get("lr_scheduler_type", "cosine")),
         "logging_steps": int(cfg.get("logging_steps", 20)),
         "eval_strategy": eval_strategy,
@@ -284,9 +293,19 @@ def train_from_config(cfg_path: Path, *, overrides: list[str] | None = None) -> 
         "run_name": str(cfg.get("wandb_run_name") or f"t5-lora-r{rank}"),
         "seed": int(cfg.get("seed", 42)),
     }
+    ws = cfg.get("warmup_steps")
+    if ws is not None and int(ws) > 0:
+        ta["warmup_steps"] = int(ws)
+    else:
+        ta["warmup_ratio"] = float(cfg.get("warmup_ratio", 0.06))
+
     max_steps_raw = cfg.get("max_steps")
-    if max_steps_raw is not None and int(max_steps_raw) > 0:
-        ta["max_steps"] = int(max_steps_raw)
+    if max_steps_raw is not None:
+        ms = int(max_steps_raw)
+        if ms > 0:
+            ta["max_steps"] = ms
+        else:
+            ta["max_steps"] = -1
     args = Seq2SeqTrainingArguments(**ta)
 
     trainer = Seq2SeqTrainer(
