@@ -59,3 +59,14 @@ rewriter_slop_eval_n: 4
 wandb_project: promptlab-v2
 wandb_entity: null
 wandb_run_name: null
+
+# Multi-source data mixing (organic + synthetic expansions)
+mix_sources: true
+data_mix_weights:
+  organic: 1.0
+  alpaca: 0.4
+  cross_topic: 0.7
+  augmented: 0.3
+
+# Extra loss term: semantic similarity between predicted vs target prompts (MiniLM cosine)
+semantic_loss_weight: 0.1

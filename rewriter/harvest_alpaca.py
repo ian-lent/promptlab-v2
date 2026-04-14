@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+"""
+Harvest low-slop Alpaca responses and map them onto rewriter clusters.
+
+Requires: outputs/rewriter/clusters.json (from rewriter/cluster_prompts.py)
+Writes: outputs/cotrain/prompt_pairs_alpaca.jsonl
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+from collections import Counter
+from pathlib import Path
+from typing import Any, Iterable
+
+import torch
+import yaml
+
+from deslop import similarity as sim
+from detector.model import SlopDetector
+
+
+KEYWORDS = (
+    "explain",
+    "discuss",
+    "argue",
+    "analyze",
+    "compare",
+    "evaluate",
+    "why",
+    "should",
+    "impact",
+    "effect",
+    "role",
+    "importance",
+    "advantages",
+    "disadvantages",
+)
+
+
+def _load_cfg(path: Path) -> dict[str, Any]:
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+
+def _iter_jsonl(path: Path) -> Iterable[dict[str, Any]]:
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        yield json.loads(line)
+
+
+def _histogram(scores: list[float], *, bins: int = 10) -> dict[str, int]:
+    if not scores:
+        return {}
+    out: dict[str, int] = {}
+    for s in scores:
+        x = float(s)
+        b = min(bins - 1, max(0, int(math.floor(x * bins))))
+        lo = b / bins
+        hi = (b + 1) / bins
+        key = f"[{lo:.1f},{hi:.1f})"
+        out[key] = out.get(key, 0) + 1
+    return out
+
+
+def _word_count(s: str) -> int:
+    return len([w for w in s.strip().split() if w])
+
+
+def _nearest_cluster_id(vec: torch.Tensor, centroids: torch.Tensor) -> int:
+    v = torch.nn.functional.normalize(vec, p=2, dim=0)
+    c = torch.nn.functional.normalize(centroids, p=2, dim=1)
+    sims = c @ v
+    return int(torch.argmax(sims).item())
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description="Harvest low-slop Alpaca responses into prompt pairs.")
+    p.add_argument("--config", type=Path, default=Path("configs/rewriter.yaml"))
+    p.add_argument("--max-samples", type=int, default=5000)
+    args = p.parse_args()
+
+    cfg_path = args.config
+    if not cfg_path.is_file():
+        raise SystemExit(f"Config not found: {cfg_path}")
+    cfg = _load_cfg(cfg_path)
+    repo_root = cfg_path.resolve().parent.parent
+
+    clusters_path = repo_root / "outputs" / "rewriter" / "clusters.json"
+    if not clusters_path.is_file():
+        raise SystemExit(
+            f"Missing clusters file: {clusters_path}. Run `uv run python rewriter/cluster_prompts.py` first."
+        )
+    clusters_doc = json.loads(clusters_path.read_text(encoding="utf-8"))
+    clusters = list(clusters_doc.get("clusters") or [])
+    if not clusters:
+        raise SystemExit(f"No clusters in {clusters_path}")
+
+    # Centroids: prefer stored float lists; otherwise embed medoid_prompt as proxy.
+    model_name = str(cfg.get("embedding_model", "sentence-transformers/all-MiniLM-L6-v2"))
+    embedder = sim._get_embedder(model_name)
+    centroid_rows = []
+    missing = []
+    for c in clusters:
+        cent = c.get("centroid")
+        if isinstance(cent, list) and cent:
+            centroid_rows.append(torch.tensor(cent, dtype=torch.float32))
+        else:
+            missing.append(c)
+    if missing:
+        proxy = [str(c.get("medoid_prompt", "")).strip() for c in missing]
+        proxy_embs = embedder.encode(proxy, convert_to_tensor=True)
+        if not isinstance(proxy_embs, torch.Tensor):
+            proxy_embs = torch.tensor(proxy_embs)
+        for i in range(proxy_embs.size(0)):
+            centroid_rows.append(proxy_embs[i].float())
+    centroids = torch.stack(centroid_rows, dim=0)
+
+    # Load Alpaca
+    try:
+        from datasets import load_dataset
+    except Exception as e:  # pragma: no cover
+        raise SystemExit(
+            "Missing dependency `datasets` for HuggingFace loading. Install with `uv add datasets`."
+        ) from e
+
+    ds = load_dataset("yahma/alpaca-cleaned", split="train")
+
+    max_samples = int(args.max_samples)
+    # Filter stage 1: empty input, length checks, keyword checks.
+    filtered: list[tuple[str, str]] = []  # (instruction, response)
+    for ex in ds:
+        inst = str(ex.get("instruction", "")).strip()
+        inp = str(ex.get("input", "")).strip()
+        out = str(ex.get("output", "")).strip()
+        if inp:
+            continue
+        if not inst or not out:
+            continue
+        if len(inst) > int(cfg.get("alpaca_max_instruction_chars", 150)):
+            continue
+        inst_low = inst.lower()
+        if not any(k in inst_low for k in KEYWORDS):
+            continue
+        wc = _word_count(out)
+        if wc < 50 or wc > 500:
+            continue
+        filtered.append((inst, out))
+        if len(filtered) >= max_samples:
+            break
+
+    if not filtered:
+        raise SystemExit("No Alpaca examples matched the filters.")
+
+    detector_ckpt = str(cfg.get("detector_checkpoint", "pangram/editlens_roberta-large"))
+    det = SlopDetector(checkpoint=detector_ckpt)
+    batch_size = int(cfg.get("alpaca_detector_batch_size", 32))
+    responses = [r for _, r in filtered]
+    scores: list[float] = []
+    for i in range(0, len(responses), batch_size):
+        scores.extend(float(s) for s in det.score_batch(responses[i : i + batch_size], batch_size=batch_size))
+
+    print(json.dumps({"alpaca_slop_histogram_pre_filter": _histogram(scores, bins=10)}), flush=True)
+
+    thr = float(cfg.get("binary_threshold", 0.5))
+    keep: list[tuple[str, str, float]] = []
+    for (inst, resp), sc in zip(filtered, scores, strict=True):
+        if float(sc) < thr:
+            keep.append((inst, resp, float(sc)))
+
+    if not keep:
+        raise SystemExit(
+            f"No Alpaca responses below binary_threshold={thr}. "
+            "Lower the threshold or increase max-samples."
+        )
+
+    # Embed responses and assign to nearest centroid.
+    resp_embs = embedder.encode([r for _, r, _ in keep], convert_to_tensor=True)
+    if not isinstance(resp_embs, torch.Tensor):
+        resp_embs = torch.tensor(resp_embs)
+    resp_embs = resp_embs.float()
+
+    out_path = repo_root / "outputs" / "cotrain" / "prompt_pairs_alpaca.jsonl"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    counts: Counter[int] = Counter()
+    with out_path.open("w", encoding="utf-8") as f:
+        for i, (inst, resp, sc) in enumerate(keep):
+            cid = _nearest_cluster_id(resp_embs[i], centroids)
+            counts[cid] += 1
+            c = next((x for x in clusters if int(x.get("cluster_id", -1)) == cid), None)
+            tmpl = str((c or {}).get("canonical_template", "")).strip()
+            if not tmpl:
+                continue
+            out_prompt = tmpl.replace("{topic}", inst)
+            rec = {
+                "topic": inst,
+                "input_prompt": inst,
+                "output_prompt": out_prompt,
+                "response": resp,
+                "slop_score": float(sc),
+                "source": "alpaca",
+                "cluster_id": cid,
+            }
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+    print(json.dumps({"alpaca_pairs_written": str(out_path), "n_written": len(keep)}), flush=True)
+    print("Per-cluster assignment counts:")
+    for cid in sorted(counts):
+        print(f"  cluster {cid}: {counts[cid]}")
+
+
+if __name__ == "__main__":
+    main()
+

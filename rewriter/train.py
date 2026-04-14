@@ -32,6 +32,7 @@ from transformers import (
     TrainerCallback,
 )
 
+from deslop import similarity as sim
 from rewriter.dataset import (
     SPLIT_MANIFEST_PATH_DEFAULT,
     RewriterDataset,
@@ -39,9 +40,102 @@ from rewriter.dataset import (
     assert_split_manifest_matches_rewriter_and_drift_configs,
     ensure_split_manifest,
     load_pairs_jsonl,
+    mix_sources,
+    pair_row_id,
     pairs_in_split,
 )
 from rewriter.inference import apply_topic_placeholder, rewrite_prompt
+
+
+class WeightedMixTrainer(Seq2SeqTrainer):
+    """
+    Seq2SeqTrainer with an optional WeightedRandomSampler and an optional semantic loss term.
+    """
+
+    _minilm = None
+
+    def __init__(self, *args, train_sampler=None, semantic_loss_weight: float = 0.0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._train_sampler = train_sampler
+        self._semantic_loss_weight = float(semantic_loss_weight or 0.0)
+
+    def get_train_dataloader(self):
+        dl = super().get_train_dataloader()
+        if self._train_sampler is None:
+            return dl
+        # Rebuild with our sampler (keeping batch size/collator/workers settings from HF).
+        return torch.utils.data.DataLoader(
+            self.train_dataset,
+            batch_size=dl.batch_size,
+            sampler=self._train_sampler,
+            collate_fn=dl.collate_fn,
+            drop_last=getattr(dl, "drop_last", False),
+            num_workers=getattr(dl, "num_workers", 0),
+            pin_memory=getattr(dl, "pin_memory", False),
+        )
+
+    @classmethod
+    def _get_minilm(cls, model_name: str):
+        if cls._minilm is None:
+            cls._minilm = sim._get_embedder(model_name)
+        return cls._minilm
+
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        outputs = model(**inputs)
+        loss = outputs.loss
+        ce_loss = loss
+
+        sem_w = self._semantic_loss_weight
+        sem_loss = None
+        if sem_w > 0 and outputs.logits is not None:
+            try:
+                logits = outputs.logits  # (b, t, vocab)
+                pred_ids = torch.argmax(logits, dim=-1)
+                labels = inputs.get("labels")
+                if labels is None:
+                    raise ValueError("Missing labels for semantic loss.")
+                pad_id = self.processing_class.pad_token_id or 0
+                tgt_ids = labels.detach().clone()
+                tgt_ids[tgt_ids == -100] = pad_id
+                pred_txt = self.processing_class.batch_decode(
+                    pred_ids.detach().cpu().tolist(),
+                    skip_special_tokens=True,
+                    clean_up_tokenization_spaces=True,
+                )
+                tgt_txt = self.processing_class.batch_decode(
+                    tgt_ids.detach().cpu().tolist(),
+                    skip_special_tokens=True,
+                    clean_up_tokenization_spaces=True,
+                )
+                minilm_name = "sentence-transformers/all-MiniLM-L6-v2"
+                emb = self._get_minilm(minilm_name)
+                with torch.no_grad():
+                    e_pred = emb.encode(pred_txt, convert_to_tensor=True).float()
+                    e_tgt = emb.encode(tgt_txt, convert_to_tensor=True).float()
+                    e_pred = torch.nn.functional.normalize(e_pred, p=2, dim=1)
+                    e_tgt = torch.nn.functional.normalize(e_tgt, p=2, dim=1)
+                    cos = (e_pred * e_tgt).sum(dim=1).clamp(-1, 1)
+                    mean_cos = cos.mean()
+                    sem_loss = 1.0 - mean_cos
+                loss = ce_loss + sem_w * sem_loss
+
+                if os.environ.get("WANDB_API_KEY"):
+                    try:
+                        import wandb
+
+                        wandb.log(
+                            {
+                                "loss/cross_entropy": float(ce_loss.detach().cpu().item()),
+                                "loss/semantic": float(sem_loss.detach().cpu().item()),
+                            }
+                        )
+                    except Exception:
+                        pass
+            except Exception:
+                # Never fail training because semantic logging/decoding failed.
+                pass
+
+        return (loss, outputs) if return_outputs else loss
 
 
 class RewriterSlopCallback(TrainerCallback):
@@ -185,12 +279,15 @@ def train_from_config(cfg_path: Path, *, overrides: list[str] | None = None) -> 
     repo_root = cfg_path.resolve().parent.parent
     assert_split_manifest_matches_rewriter_and_drift_configs(cwd=repo_root)
 
-    pairs_path = Path(cfg["pairs_jsonl"])
+    mix_enabled = bool(cfg.get("mix_sources", True))
+    pairs_path = Path(cfg.get("pairs_jsonl", "outputs/cotrain/prompt_pairs.jsonl"))
     if not pairs_path.is_absolute():
         pairs_path = (repo_root / pairs_path).resolve()
     manifest_path = Path(cfg.get("split_manifest_path", SPLIT_MANIFEST_PATH_DEFAULT))
     if not manifest_path.is_absolute():
         manifest_path = (repo_root / manifest_path).resolve()
+
+    # Split manifest is always based on organic pairs only (leakage control).
     ensure_split_manifest(
         pairs_path,
         manifest_path,
@@ -200,11 +297,32 @@ def train_from_config(cfg_path: Path, *, overrides: list[str] | None = None) -> 
         force_rebuild=bool(cfg.get("force_rebuild_split", False)),
     )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    all_pairs = load_pairs_jsonl(pairs_path)
-    train_rows = pairs_in_split(all_pairs, manifest, "train")
-    val_rows = pairs_in_split(all_pairs, manifest, "val")
+    organic_pairs = load_pairs_jsonl(pairs_path)
+    train_rows = pairs_in_split(organic_pairs, manifest, "train")
+    val_rows = pairs_in_split(organic_pairs, manifest, "val")
     if not train_rows:
         raise SystemExit("No training pairs after split — check pair log path and manifest.")
+
+    # Optionally mix in synthetic sources for training only.
+    train_sampler = None
+    if mix_enabled:
+        mixed_rows, sampler = mix_sources(cfg, repo_root=repo_root)
+        # Keep only organic split IDs for train/val; add synthetic rows to train only.
+        train_ids = set(manifest.get("splits", {}).get("train", []))
+        val_ids = set(manifest.get("splits", {}).get("val", []))
+        mixed_train: list[dict[str, Any]] = []
+        for r in mixed_rows:
+            src = str(r.get("source", "organic"))
+            if src == "organic":
+                pid = pair_row_id(r)
+                if pid in train_ids:
+                    mixed_train.append(r)
+            else:
+                mixed_train.append(r)
+        train_rows = mixed_train
+        train_sampler = sampler
+        # val remains organic-only for comparability
+        val_rows = [r for r in organic_pairs if pair_row_id(r) in val_ids]
 
     model_id = str(cfg.get("base_model", "t5-base"))
     tok = AutoTokenizer.from_pretrained(model_id, legacy=False)
@@ -308,7 +426,7 @@ def train_from_config(cfg_path: Path, *, overrides: list[str] | None = None) -> 
             ta["max_steps"] = -1
     args = Seq2SeqTrainingArguments(**ta)
 
-    trainer = Seq2SeqTrainer(
+    trainer = WeightedMixTrainer(
         model=model,
         args=args,
         train_dataset=train_ds,
@@ -316,6 +434,8 @@ def train_from_config(cfg_path: Path, *, overrides: list[str] | None = None) -> 
         data_collator=collator,
         processing_class=tok,
         callbacks=[slop_callback],
+        train_sampler=train_sampler,
+        semantic_loss_weight=float(cfg.get("semantic_loss_weight", 0.0)),
     )
     trainer.train()
     adapter_dir = out_dir / "lora_adapter"

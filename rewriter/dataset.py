@@ -25,11 +25,16 @@ from pathlib import Path
 from typing import Any
 
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, WeightedRandomSampler
 
 # Default manifest path — must match ``split_manifest_path`` defaults in configs/rewriter.yaml
 # and ``drift_coef_opt.split_manifest_path`` in configs/deslop.yaml / cotrain.yaml.
 SPLIT_MANIFEST_PATH_DEFAULT = "outputs/cotrain/splits/rewriter_split_manifest.json"
+
+PAIR_LOG_ORGANIC_DEFAULT = "outputs/cotrain/prompt_pairs.jsonl"
+PAIR_LOG_ALPACA_DEFAULT = "outputs/cotrain/prompt_pairs_alpaca.jsonl"
+PAIR_LOG_CROSS_TOPIC_DEFAULT = "outputs/cotrain/prompt_pairs_cross_topic.jsonl"
+PAIR_LOG_AUGMENTED_DEFAULT = "outputs/cotrain/prompt_pairs_augmented.jsonl"
 
 
 def resolve_split_manifest_path(value: str | Path | None, *, cwd: Path) -> Path:
@@ -98,6 +103,72 @@ def load_pairs_jsonl(path: str | Path) -> list[dict[str, Any]]:
             continue
         rows.append(json.loads(line))
     return rows
+
+
+def _resolve_path(value: str | Path, *, cwd: Path) -> Path:
+    p = Path(value)
+    if p.is_absolute():
+        return p.resolve()
+    return (cwd / p).resolve()
+
+
+def mix_sources(
+    cfg: dict[str, Any],
+    *,
+    repo_root: Path,
+) -> tuple[list[dict[str, Any]], WeightedRandomSampler | None]:
+    """
+    Load organic + optional synthetic sources, and (when possible) create a sampler that draws
+    rows proportionally to per-source weights.
+
+    Missing JSONL files are skipped gracefully.
+    """
+    mix_enabled = bool(cfg.get("mix_sources", True))
+    weights_cfg = dict(cfg.get("data_mix_weights") or {})
+    source_weight = {
+        "organic": float(weights_cfg.get("organic", 1.0)),
+        "alpaca": float(weights_cfg.get("alpaca", 0.4)),
+        "cross_topic": float(weights_cfg.get("cross_topic", 0.7)),
+        "augmented": float(weights_cfg.get("augmented", 0.3)),
+    }
+
+    organic_path = _resolve_path(
+        cfg.get("pairs_jsonl", PAIR_LOG_ORGANIC_DEFAULT), cwd=repo_root
+    )
+    organic = load_pairs_jsonl(organic_path)
+    for r in organic:
+        r.setdefault("source", "organic")
+
+    if not mix_enabled:
+        return organic, None
+
+    paths = {
+        "alpaca": _resolve_path(
+            cfg.get("pairs_jsonl_alpaca", PAIR_LOG_ALPACA_DEFAULT), cwd=repo_root
+        ),
+        "cross_topic": _resolve_path(
+            cfg.get("pairs_jsonl_cross_topic", PAIR_LOG_CROSS_TOPIC_DEFAULT), cwd=repo_root
+        ),
+        "augmented": _resolve_path(
+            cfg.get("pairs_jsonl_augmented", PAIR_LOG_AUGMENTED_DEFAULT), cwd=repo_root
+        ),
+    }
+    loaded: list[dict[str, Any]] = list(organic)
+    for src, p in paths.items():
+        rows = load_pairs_jsonl(p)
+        if not rows:
+            continue
+        for r in rows:
+            r.setdefault("source", src)
+        loaded.extend(rows)
+
+    if not loaded:
+        return loaded, None
+
+    w = [source_weight.get(str(r.get("source", "organic")), 1.0) for r in loaded]
+    # WeightedRandomSampler expects a sequence of weights (float) per-row.
+    sampler = WeightedRandomSampler(weights=w, num_samples=len(w), replacement=True)
+    return loaded, sampler
 
 
 def build_split_manifest(
@@ -270,7 +341,10 @@ class RewriterDataset(Dataset):
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         r = self.rows[idx]
         src = str(r.get("input_prompt", r.get("input", ""))).strip()
-        tgt = str(r.get("output_prompt", r.get("output", ""))).strip()
+        tgt_raw = str(r.get("output_prompt", r.get("output", ""))).strip()
+        topic = str(r.get("topic", "")).strip()
+        # Some synthetic sources may store canonical templates; instantiate here if needed.
+        tgt = tgt_raw.replace("{topic}", topic) if ("{topic}" in tgt_raw and topic) else tgt_raw
         enc = self.tokenizer(
             self.TASK_PREFIX + src,
             truncation=True,

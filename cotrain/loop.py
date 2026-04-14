@@ -421,6 +421,8 @@ def cotrain(
     # Only explicit ``adaptive`` runs detector/train.py; unknown modes default to no retrain.
     detector_train_this_round = mode_norm == "adaptive" and not bool(skip_detector_retrain)
     effective_skip_detector = not detector_train_this_round
+    if effective_skip_detector:
+        base_train_jsonl = None
     few_shot_pool_path = few_shot_pool_path or Path("outputs/cotrain/fewshot_pool.jsonl")
     colab_checkpoint_path = colab_checkpoint_path or Path("outputs/cotrain/colab_checkpoint.json")
     few_shot_enabled = few_shot_n > 0
@@ -431,7 +433,7 @@ def cotrain(
         auto_passages, auto_best_slop = load_topic_sources_index(auto_path)
         topic_src.update(auto_passages)
 
-    data_manager = CotrainDataManager(base_train_jsonl)
+    data_manager = CotrainDataManager(base_train_jsonl) if not effective_skip_detector else None
     pair_log_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     pair_logger = PairLogger(pair_log_path)
@@ -679,18 +681,22 @@ def cotrain(
                         af.flush()
                         topic_src[topic] = text
 
-        data_manager.accumulate(r, fool_essays)
+        if data_manager is not None:
+            data_manager.accumulate(r, fool_essays)
 
-        # Append fool essays for next train — merge into extra JSONL
-        with extra_accum_path.open("a", encoding="utf-8") as xf:
-            for row in fool_essays:
-                xf.write(json.dumps(row, ensure_ascii=False) + "\n")
+        if not effective_skip_detector:
+            # Append fool essays for next train — merge into extra JSONL
+            with extra_accum_path.open("a", encoding="utf-8") as xf:
+                for row in fool_essays:
+                    xf.write(json.dumps(row, ensure_ascii=False) + "\n")
 
-        # Build full training JSONL path for this round (base + extra)
-        full_train_path = detector_output_root / f"train_merged_r{r}.jsonl"
-        _write_merged_train(base_train_jsonl, extra_accum_path, full_train_path, recent_weight, r)
-        # When retraining remotely, this is the file to copy to the GPU machine.
-        _log(json.dumps({"round": r, "train_jsonl_for_retrain": str(full_train_path)}))
+            # Build full training JSONL path for this round (base + extra)
+            full_train_path = detector_output_root / f"train_merged_r{r}.jsonl"
+            _write_merged_train(
+                base_train_jsonl, extra_accum_path, full_train_path, recent_weight, r
+            )
+            # When retraining remotely, this is the file to copy to the GPU machine.
+            _log(json.dumps({"round": r, "train_jsonl_for_retrain": str(full_train_path)}))
 
         out_dir = detector_output_root / f"round_{r}"
         val_jsonl = Path(cfg.get("merged_val_jsonl") or "data/merged/val.jsonl")
@@ -977,22 +983,23 @@ def _cotrain_main_after_parse(args) -> None:
 
     det_cfg_path = Path(cfg.get("detector_train_config", "configs/detector.yaml"))
     det_yaml = yaml.safe_load(det_cfg_path.read_text(encoding="utf-8"))
-    base_train = None
-    bd = cfg.get("base_dataset_jsonl")
-    if bd:
-        bp = Path(bd)
-        if bp.is_file():
-            base_train = bp
-        elif bp.exists():
-            raise SystemExit(f"base_dataset_jsonl is not a file: {bp}")
+    base_train: Path | None = None
+    if not skip_detector_retrain:
+        bd = cfg.get("base_dataset_jsonl")
+        if bd:
+            bp = Path(bd)
+            if bp.is_file():
+                base_train = bp
+            elif bp.exists():
+                raise SystemExit(f"base_dataset_jsonl is not a file: {bp}")
 
-    default_train = det_yaml.get("merged_train_jsonl")
-    train_check = base_train or Path(default_train) if default_train else None
-    if train_check is not None and not train_check.is_file():
-        raise SystemExit(
-            f"Training JSONL missing: {train_check}. "
-            "Build merged data (see README) or set base_dataset_jsonl / merged_train_jsonl."
-        )
+        default_train = det_yaml.get("merged_train_jsonl")
+        train_check = base_train or Path(default_train) if default_train else None
+        if train_check is not None and not train_check.is_file():
+            raise SystemExit(
+                f"Training JSONL missing: {train_check}. "
+                "Build merged data (see README) or set base_dataset_jsonl / merged_train_jsonl."
+            )
 
     groq_model = str(cfg.get("groq_model", "llama-3.3-70b-versatile"))
     essay_temp = float(cfg.get("essay_temperature", 0.9))
