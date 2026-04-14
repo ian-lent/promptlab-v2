@@ -332,8 +332,9 @@ class RewriterDataset(Dataset):
     ) -> None:
         self.rows = rows
         self.tokenizer = tokenizer
-        self.max_input_length = max_input_length
-        self.max_target_length = max_target_length
+        # Defensive: sometimes callers accidentally pass a config dict; coerce early.
+        self.max_input_length = int(max_input_length)
+        self.max_target_length = int(max_target_length)
 
     def __len__(self) -> int:
         return len(self.rows)
