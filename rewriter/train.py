@@ -641,17 +641,28 @@ def train_from_config(cfg_path: Path, *, overrides: list[str] | None = None) -> 
         patience=int(cfg.get("early_stopping_patience", 8)),
     )
 
-    trainer = WeightedMixTrainer(
-        model=model,
-        args=args,
-        train_dataset=train_ds,
-        eval_dataset=val_ds,
-        data_collator=collator,
-        processing_class=tok,
-        callbacks=[slop_callback, early],
-        train_sampler=train_sampler,
-        semantic_loss_weight=float(cfg.get("semantic_loss_weight", 0.0)),
-    )
+    if mode == "essay":
+        trainer = Seq2SeqTrainer(
+            model=model,
+            args=args,
+            train_dataset=train_ds,
+            eval_dataset=val_ds,
+            data_collator=collator,
+            processing_class=tok,
+            callbacks=[slop_callback, early],
+        )
+    else:
+        trainer = WeightedMixTrainer(
+            model=model,
+            args=args,
+            train_dataset=train_ds,
+            eval_dataset=val_ds,
+            data_collator=collator,
+            processing_class=tok,
+            callbacks=[slop_callback, early],
+            train_sampler=train_sampler,
+            semantic_loss_weight=float(cfg.get("semantic_loss_weight", 0.0)),
+        )
     trainer.train()
     print(
         json.dumps({"best_slop": early.best_slop, "best_slop_step": early.best_step}),
