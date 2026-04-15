@@ -39,6 +39,41 @@ def _log(msg: str) -> None:
     print(msg, flush=True)
 
 
+def _write_pair_record_with_essays(
+    *,
+    pair_log_path: Path,
+    topic: str,
+    topic_source: str,
+    parent_prompt: PromptCandidate,
+    child_prompt: PromptCandidate,
+    parent_score: float,
+    child_score: float,
+    round_num: int,
+    best_essay: str | None,
+    baseline_essay: str | None,
+) -> None:
+    """Append a prompt-pair JSONL record, including best/baseline essays when available."""
+    if child_score >= parent_score:
+        return
+    record = {
+        "topic": topic,
+        "topic_source": topic_source,
+        "input_prompt": parent_prompt.full_text(),
+        "output_prompt": child_prompt.full_text(),
+        "input_slop_score": parent_score,
+        "output_slop_score": child_score,
+        "improvement": parent_score - child_score,
+        "mutation_op": child_prompt.mutation_op,
+        "round": round_num,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "best_essay": best_essay,
+        "baseline_essay": baseline_essay,
+    }
+    pair_log_path.parent.mkdir(parents=True, exist_ok=True)
+    with pair_log_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
 class _TeeStdout:
     """Mirror ``sys.stdout`` writes to a UTF-8 log file (flush per write for live tail)."""
 
@@ -622,14 +657,27 @@ def cotrain(
                 user_template="Write an essay about {topic}.",
                 style_instructions="",
             )
-            pair_logger.log_improvement(
-                topic,
-                seed_cand,
-                best_cand,
-                parent_score=1.0,
-                child_score=min((e["slop_score"] for e in essays if e.get("constraint_ok")), default=1.0),
-                round_num=r,
+            best_ok = [
+                e for e in essays if e.get("constraint_ok") and e.get("essay") is not None
+            ]
+            best_essay_text: str | None = None
+            best_slop = 1.0
+            if best_ok:
+                best_e = min(best_ok, key=lambda x: float(x.get("slop_score", 1.0)))
+                best_slop = float(best_e.get("slop_score", 1.0))
+                best_essay_text = str(best_e.get("essay") or "").strip() or None
+
+            _write_pair_record_with_essays(
+                pair_log_path=pair_log_path,
+                topic=topic,
                 topic_source=topic_source,
+                parent_prompt=seed_cand,
+                child_prompt=best_cand,
+                parent_score=1.0,
+                child_score=best_slop,
+                round_num=r,
+                best_essay=best_essay_text,
+                baseline_essay=None,
             )
 
             fool_ok = [

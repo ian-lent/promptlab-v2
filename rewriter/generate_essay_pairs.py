@@ -89,6 +89,17 @@ def main() -> None:
             if not topic or not out_prompt:
                 continue
 
+            # If essays already present from cotrain logging, use them directly.
+            if r.get("best_essay") and r.get("baseline_essay"):
+                rec = {
+                    **r,
+                    "baseline_slop": float(det.score(str(r["baseline_essay"]))),
+                    "best_slop": float(det.score(str(r["best_essay"]))),
+                }
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                n_written += 1
+                continue
+
             baseline_prompt = GENERIC_PROMPT.format(topic=topic)
             best_prompt = apply_topic_placeholder(out_prompt, topic)
 
