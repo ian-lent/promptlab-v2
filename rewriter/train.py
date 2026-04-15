@@ -612,7 +612,8 @@ def train_from_config(cfg_path: Path, *, overrides: list[str] | None = None) -> 
         "eval_steps": eval_steps,
         "save_steps": int(cfg.get("save_steps", 500)),
         "save_total_limit": int(cfg.get("save_total_limit", 2)),
-        "load_best_model_at_end": bool(cfg.get("load_best_model_at_end", True)),
+        "load_best_model_at_end": False,
+        "dataloader_drop_last": False,
         "metric_for_best_model": str(cfg.get("metric_for_best_model", "loss")),
         "greater_is_better": False,
         "bf16": bool(cfg.get("bf16", torch.cuda.is_available())),
@@ -639,7 +640,6 @@ def train_from_config(cfg_path: Path, *, overrides: list[str] | None = None) -> 
         output_dir=str(out_dir),
         patience=int(cfg.get("early_stopping_patience", 8)),
     )
-    ta["load_best_model_at_end"] = False
 
     trainer = WeightedMixTrainer(
         model=model,
