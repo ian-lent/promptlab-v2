@@ -11,7 +11,7 @@ pairs_jsonl: outputs/cotrain/prompt_pairs.jsonl
 split_manifest_path: outputs/cotrain/splits/rewriter_split_manifest.json
 split_seed: 42
 train_frac: 0.7
-val_frac: 0.25
+val_frac: 0.20
 force_rebuild_split: true
 
 base_model: t5-base
@@ -27,31 +27,35 @@ max_input_length: 512
 max_target_length: 512
 
 # Rewriter mode: "prompt" (input_prompt -> output_prompt) or "essay" (baseline_essay -> best_essay)
-rewriter_mode: prompt
+rewriter_mode: essay
 
 # Essay rewriting mode (new)
-essay_pairs_jsonl: outputs/rewriter/essay_pairs_organic.jsonl
+essay_pairs_jsonl: outputs/rewriter/essay_pairs_contrastive.jsonl
 max_input_tokens: 512
 max_target_tokens: 512
 essay_source_filter: ["organic"]
 
 # Early stopping on rewriter_slop_mean (lower is better)
-early_stopping_patience: 8
+early_stopping_patience: 10
 
-# Mixed-data training (~2k+ rows): larger batch + step cap for Colab.
-per_device_train_batch_size: 8
+# Curriculum learning (essay mode): easiest-first by (baseline_slop - best_slop)
+curriculum: true
+curriculum_warmup_steps: 100
+
+# Training schedule for tiny contrastive essay dataset
+per_device_train_batch_size: 4
 per_device_eval_batch_size: 2
 learning_rate: 0.0003
-num_train_epochs: 3
-max_steps: 500
+num_train_epochs: 50
+max_steps: 1500
 weight_decay: 0.01
 # Use warmup_steps (not warmup_ratio) for predictable warmup on tiny datasets.
 warmup_steps: 50
 lr_scheduler_type: cosine
 logging_steps: 20
 eval_strategy: steps
-eval_steps: 100
-save_steps: 100
+eval_steps: 50
+save_steps: 50
 save_total_limit: 2
 load_best_model_at_end: false
 metric_for_best_model: loss
@@ -67,6 +71,13 @@ detector_checkpoint: pangram/editlens_roberta-large
 groq_model: llama-3.3-70b-versatile
 essay_temperature: 0.9
 rewriter_slop_eval_n: 20  # uses all available val examples
+
+# Deterministic generation for stable eval slop metric
+eval_num_beams: 4
+eval_do_sample: false
+
+# Time-to-result tracking
+ttr_thresholds: [0.7, 0.6, 0.5, 0.4]
 
 wandb_project: promptlab-v2
 wandb_entity: null
@@ -89,3 +100,4 @@ run_notes:
   - "2026-04-14: mixed 500 steps, 4 val, best slop 0.413 @ step 300"
   - "2026-04-14: mixed 1500 steps, 14 val, best slop 0.580 @ step 100"
   - "2026-04-15: organic 1500 steps, 14 val, best slop 0.759 @ step 1300"
+  - "2026-04-15: essay mode, 18 contrastive pairs, exp_A — weight_decay=0.01, curriculum, beam eval"

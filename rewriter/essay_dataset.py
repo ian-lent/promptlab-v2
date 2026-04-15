@@ -29,10 +29,14 @@ class EssayPairDataset(Dataset):
         max_input_len: int = 512,
         max_target_len: int = 512,
         source_filter: list[str] | None = None,
+        curriculum: bool = False,
+        curriculum_warmup_steps: int = 100,
     ) -> None:
         self.tokenizer = tokenizer
         self.max_input_len = int(max_input_len)
         self.max_target_len = int(max_target_len)
+        self.curriculum = bool(curriculum)
+        self.curriculum_warmup_steps = int(curriculum_warmup_steps)
 
         if source_filter:
             allowed = set(source_filter)
@@ -41,6 +45,18 @@ class EssayPairDataset(Dataset):
         self.examples = [
             p for p in pairs if p.get("baseline_essay") and p.get("best_essay")
         ]
+
+        if self.curriculum:
+            self.examples = sorted(
+                self.examples,
+                key=lambda p: float(p.get("baseline_slop", 0.0))
+                - float(p.get("best_slop", 0.0)),
+                reverse=True,
+            )
+            for i, p in enumerate(self.examples):
+                gap = float(p.get("baseline_slop", 0.0)) - float(p.get("best_slop", 0.0))
+                topic = str(p.get("topic", ""))[:50]
+                print(f"  curriculum[{i}]: gap={gap:.3f}  {topic}", flush=True)
 
         print(
             f"[EssayPairDataset] {len(self.examples)} usable pairs "

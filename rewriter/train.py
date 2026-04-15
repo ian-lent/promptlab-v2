@@ -107,6 +107,9 @@ class EssayRewriterSlopCallback(TrainerCallback):
         device: torch.device,
         max_input_tokens: int,
         max_new_tokens: int,
+        eval_num_beams: int = 4,
+        eval_do_sample: bool = False,
+        ttr_thresholds: list[float] | None = None,
     ) -> None:
         import random
 
@@ -116,6 +119,10 @@ class EssayRewriterSlopCallback(TrainerCallback):
         self.device = device
         self.max_input_tokens = int(max_input_tokens)
         self.max_new_tokens = int(max_new_tokens)
+        self.eval_num_beams = int(eval_num_beams)
+        self.eval_do_sample = bool(eval_do_sample)
+        self.ttr_thresholds = list(ttr_thresholds or [0.7, 0.6, 0.5, 0.4])
+        self.ttr_achieved: dict[float, int] = {}
         self._detector = None
 
     def _lazy_init(self) -> bool:
@@ -142,10 +149,25 @@ class EssayRewriterSlopCallback(TrainerCallback):
                     truncation=True,
                 )
                 enc = {k: v.to(self.device) for k, v in enc.items()}
-                out_ids = model.generate(**enc, max_new_tokens=self.max_new_tokens, num_beams=4)
+                out_ids = model.generate(
+                    **enc,
+                    max_new_tokens=self.max_new_tokens,
+                    num_beams=self.eval_num_beams,
+                    do_sample=self.eval_do_sample,
+                    early_stopping=True,
+                )
                 rewritten = self.tokenizer.decode(out_ids[0], skip_special_tokens=True)
                 scores.append(float(self._detector.score(rewritten)))
         mean_slop = sum(scores) / len(scores) if scores else 1.0
+
+        for thr in self.ttr_thresholds:
+            if thr not in self.ttr_achieved and mean_slop <= float(thr):
+                self.ttr_achieved[float(thr)] = int(state.global_step)
+                print(
+                    f"[TTR] slop_mean <= {float(thr)} first achieved at step {state.global_step}",
+                    flush=True,
+                )
+
         print(
             json.dumps(
                 {
@@ -153,6 +175,7 @@ class EssayRewriterSlopCallback(TrainerCallback):
                     "step": int(state.global_step),
                     "n": len(scores),
                     "mode": "essay_rewriting",
+                    "ttr_achieved": self.ttr_achieved,
                 }
             ),
             flush=True,
@@ -488,6 +511,8 @@ def train_from_config(cfg_path: Path, *, overrides: list[str] | None = None) -> 
             max_input_len=int(cfg.get("max_input_tokens", 512)),
             max_target_len=int(cfg.get("max_target_tokens", 512)),
             source_filter=source_filter,
+            curriculum=bool(cfg.get("curriculum", False)),
+            curriculum_warmup_steps=int(cfg.get("curriculum_warmup_steps", 100)),
         )
         val_ds = EssayPairDataset(
             essay_val or essay_train[: max(1, len(essay_train) // 10)],
@@ -495,6 +520,8 @@ def train_from_config(cfg_path: Path, *, overrides: list[str] | None = None) -> 
             max_input_len=int(cfg.get("max_input_tokens", 512)),
             max_target_len=int(cfg.get("max_target_tokens", 512)),
             source_filter=source_filter,
+            curriculum=False,
+            curriculum_warmup_steps=int(cfg.get("curriculum_warmup_steps", 100)),
         )
     else:
         train_ds = RewriterDataset(
@@ -553,6 +580,9 @@ def train_from_config(cfg_path: Path, *, overrides: list[str] | None = None) -> 
             device=device,
             max_input_tokens=int(cfg.get("max_input_tokens", 512)),
             max_new_tokens=gen_max,
+            eval_num_beams=int(cfg.get("eval_num_beams", 4)),
+            eval_do_sample=bool(cfg.get("eval_do_sample", False)),
+            ttr_thresholds=list(cfg.get("ttr_thresholds", [0.7, 0.6, 0.5, 0.4])),
         )
     else:
         slop_callback = RewriterSlopCallback(
