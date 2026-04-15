@@ -11,8 +11,8 @@ pairs_jsonl: outputs/cotrain/prompt_pairs.jsonl
 split_manifest_path: outputs/cotrain/splits/rewriter_split_manifest.json
 split_seed: 42
 train_frac: 0.7
-val_frac: 0.15
-force_rebuild_split: false
+val_frac: 0.25
+force_rebuild_split: true
 
 base_model: t5-base
 output_dir: outputs/rewriter/t5_lora_r8
@@ -31,7 +31,7 @@ per_device_train_batch_size: 8
 per_device_eval_batch_size: 2
 learning_rate: 0.0003
 num_train_epochs: 3
-max_steps: 500
+max_steps: 1500
 weight_decay: 0.01
 # Use warmup_steps (not warmup_ratio) for predictable warmup on tiny datasets.
 warmup_steps: 50
@@ -54,7 +54,7 @@ generation_max_new_tokens: 512
 detector_checkpoint: pangram/editlens_roberta-large
 groq_model: llama-3.3-70b-versatile
 essay_temperature: 0.9
-rewriter_slop_eval_n: 4
+rewriter_slop_eval_n: 20  # uses all available val examples
 
 wandb_project: promptlab-v2
 wandb_entity: null
