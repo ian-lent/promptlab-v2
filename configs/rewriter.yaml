@@ -18,20 +18,32 @@ base_model: t5-base
 output_dir: outputs/rewriter/t5_lora_r8
 
 # LoRA rank ablation: set to 4, 8, or 16 across separate runs / W&B runs.
-lora_r: 8
-lora_alpha: 16
+lora_r: 16
+lora_alpha: 32
 lora_dropout: 0.05
 lora_target_modules: ["q", "v"]
 
 max_input_length: 512
 max_target_length: 512
 
+# Rewriter mode: "prompt" (input_prompt -> output_prompt) or "essay" (baseline_essay -> best_essay)
+rewriter_mode: prompt
+
+# Essay rewriting mode (new)
+essay_pairs_jsonl: outputs/rewriter/essay_pairs_organic.jsonl
+max_input_tokens: 512
+max_target_tokens: 512
+essay_source_filter: ["organic"]
+
+# Early stopping on rewriter_slop_mean (lower is better)
+early_stopping_patience: 8
+
 # Mixed-data training (~2k+ rows): larger batch + step cap for Colab.
 per_device_train_batch_size: 8
 per_device_eval_batch_size: 2
 learning_rate: 0.0003
 num_train_epochs: 3
-max_steps: 1500
+max_steps: 500
 weight_decay: 0.01
 # Use warmup_steps (not warmup_ratio) for predictable warmup on tiny datasets.
 warmup_steps: 50
@@ -41,7 +53,7 @@ eval_strategy: steps
 eval_steps: 100
 save_steps: 100
 save_total_limit: 2
-load_best_model_at_end: true
+load_best_model_at_end: false
 metric_for_best_model: loss
 bf16: true
 seed: 42
@@ -70,3 +82,10 @@ data_mix_weights:
 
 # Extra loss term: semantic similarity between predicted vs target prompts (MiniLM cosine)
 semantic_loss_weight: 0.1
+
+# EXPERIMENTAL LOG — append only, never delete
+run_notes:
+  - "2026-04-13: organic-only 20ep, 4 val, best slop 0.391 @ step ~150"
+  - "2026-04-14: mixed 500 steps, 4 val, best slop 0.413 @ step 300"
+  - "2026-04-14: mixed 1500 steps, 14 val, best slop 0.580 @ step 100"
+  - "2026-04-15: organic 1500 steps, 14 val, best slop 0.759 @ step 1300"

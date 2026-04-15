@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,8 @@ from transformers import (
 )
 
 from deslop import similarity as sim
+from detector.model import SlopDetector
+from rewriter.essay_dataset import EssayPairDataset
 from rewriter.dataset import (
     SPLIT_MANIFEST_PATH_DEFAULT,
     RewriterDataset,
@@ -46,6 +49,125 @@ from rewriter.dataset import (
     pairs_in_split,
 )
 from rewriter.inference import apply_topic_placeholder, rewrite_prompt
+
+
+class SlopEarlyStoppingCallback(TrainerCallback):
+    """Saves best adapter checkpoint by rewriter_slop_mean (lower = better)."""
+
+    def __init__(self, output_dir: str, patience: int = 8):
+        self.best_slop = float("inf")
+        self.best_step = 0
+        self.patience = int(patience)
+        self.steps_without_improvement = 0
+        self.best_dir = os.path.join(output_dir, "best_slop_adapter")
+
+    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
+        m = metrics or kwargs.get("metrics") or {}
+        slop = m.get("rewriter_slop_mean")
+        if slop is None:
+            return control
+        slop_f = float(slop)
+        if slop_f < self.best_slop:
+            self.best_slop = slop_f
+            self.best_step = int(state.global_step)
+            self.steps_without_improvement = 0
+            src = os.path.join(args.output_dir, f"checkpoint-{state.global_step}")
+            if os.path.exists(src):
+                if os.path.exists(self.best_dir):
+                    shutil.rmtree(self.best_dir)
+                shutil.copytree(src, self.best_dir)
+            print(
+                f"[SlopEarlyStopping] New best: {slop_f:.4f} at step {state.global_step}",
+                flush=True,
+            )
+        else:
+            self.steps_without_improvement += 1
+            if self.steps_without_improvement >= self.patience:
+                control.should_training_stop = True
+                print(
+                    f"[SlopEarlyStopping] No improvement for {self.patience} evals. "
+                    f"Best: {self.best_slop:.4f} at step {self.best_step}. Stopping.",
+                    flush=True,
+                )
+        return control
+
+
+class EssayRewriterSlopCallback(TrainerCallback):
+    """
+    Evaluates rewriter_slop_mean for essay-to-essay rewriting by scoring generated essays directly.
+    """
+
+    def __init__(
+        self,
+        *,
+        val_pairs: list[dict[str, Any]],
+        tokenizer: Any,
+        detector_checkpoint: str,
+        n: int,
+        device: torch.device,
+        max_input_tokens: int,
+        max_new_tokens: int,
+    ) -> None:
+        import random
+
+        self.val_pairs = random.sample(val_pairs, min(int(n), len(val_pairs)))
+        self.tokenizer = tokenizer
+        self.detector_checkpoint = detector_checkpoint
+        self.device = device
+        self.max_input_tokens = int(max_input_tokens)
+        self.max_new_tokens = int(max_new_tokens)
+        self._detector = None
+
+    def _lazy_init(self) -> bool:
+        if self._detector is None:
+            self._detector = SlopDetector(checkpoint=self.detector_checkpoint)
+        return True
+
+    def on_evaluate(self, args, state, control, model=None, metrics=None, **kwargs):
+        if model is None or not self.val_pairs:
+            return control
+        if not self._lazy_init():
+            return control
+        model.eval()
+        scores: list[float] = []
+        with torch.no_grad():
+            for p in self.val_pairs:
+                base = str(p.get("baseline_essay", "")).strip()
+                if not base:
+                    continue
+                enc = self.tokenizer(
+                    "rewrite: " + base,
+                    return_tensors="pt",
+                    max_length=self.max_input_tokens,
+                    truncation=True,
+                )
+                enc = {k: v.to(self.device) for k, v in enc.items()}
+                out_ids = model.generate(**enc, max_new_tokens=self.max_new_tokens, num_beams=4)
+                rewritten = self.tokenizer.decode(out_ids[0], skip_special_tokens=True)
+                scores.append(float(self._detector.score(rewritten)))
+        mean_slop = sum(scores) / len(scores) if scores else 1.0
+        print(
+            json.dumps(
+                {
+                    "rewriter_slop_mean": mean_slop,
+                    "step": int(state.global_step),
+                    "n": len(scores),
+                    "mode": "essay_rewriting",
+                }
+            ),
+            flush=True,
+        )
+        m = metrics or kwargs.get("metrics")
+        if isinstance(m, dict):
+            m["rewriter_slop_mean"] = mean_slop
+        if os.environ.get("WANDB_API_KEY"):
+            try:
+                import wandb
+
+                wandb.log({"eval/rewriter_slop_mean": mean_slop, "step": state.global_step})
+            except Exception:
+                pass
+        return control
 
 
 class WeightedMixTrainer(Seq2SeqTrainer):
@@ -241,6 +363,9 @@ class RewriterSlopCallback(TrainerCallback):
                     wandb.log({"eval/rewriter_slop_mean": mean_s, "step": state.global_step})
                 except Exception:
                     pass
+            m = kwargs.get("metrics")
+            if isinstance(m, dict):
+                m["rewriter_slop_mean"] = mean_s
             print(
                 json.dumps(
                     {"rewriter_slop_mean": mean_s, "step": state.global_step, "n": len(scores)}
@@ -281,6 +406,7 @@ def train_from_config(cfg_path: Path, *, overrides: list[str] | None = None) -> 
     repo_root = cfg_path.resolve().parent.parent
     assert_split_manifest_matches_rewriter_and_drift_configs(cwd=repo_root)
 
+    mode = str(cfg.get("rewriter_mode", "prompt")).strip().lower()
     mix_enabled = bool(cfg.get("mix_sources", True))
     pairs_path = Path(cfg.get("pairs_jsonl", "outputs/cotrain/prompt_pairs.jsonl"))
     if not pairs_path.is_absolute():
@@ -340,18 +466,49 @@ def train_from_config(cfg_path: Path, *, overrides: list[str] | None = None) -> 
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
 
-    train_ds = RewriterDataset(
-        train_rows,
-        tok,
-        max_input_length=int(cfg.get("max_input_length", 512)),
-        max_target_length=int(cfg.get("max_target_length", 512)),
-    )
-    val_ds = RewriterDataset(
-        val_rows or train_rows[: max(1, len(train_rows) // 10)],
-        tok,
-        max_input_length=int(cfg.get("max_input_length", 512)),
-        max_target_length=int(cfg.get("max_target_length", 512)),
-    )
+    if mode == "essay":
+        essay_pairs_path = Path(cfg.get("essay_pairs_jsonl", "outputs/rewriter/essay_pairs_organic.jsonl"))
+        if not essay_pairs_path.is_absolute():
+            essay_pairs_path = (repo_root / essay_pairs_path).resolve()
+        all_essay_pairs = load_pairs_jsonl(essay_pairs_path)
+        if not all_essay_pairs:
+            raise SystemExit(
+                f"No essay pairs found at {essay_pairs_path}. "
+                "Generate them first with `uv run python rewriter/generate_essay_pairs.py`."
+            )
+        # Use split IDs computed from organic prompt pairs but train on essay pairs filtered to matching topics.
+        allowed_train_topics = {str(r.get("topic", "")).strip() for r in train_rows if str(r.get("topic", "")).strip()}
+        allowed_val_topics = {str(r.get("topic", "")).strip() for r in val_rows if str(r.get("topic", "")).strip()}
+        essay_train = [p for p in all_essay_pairs if str(p.get("topic", "")).strip() in allowed_train_topics]
+        essay_val = [p for p in all_essay_pairs if str(p.get("topic", "")).strip() in allowed_val_topics]
+        source_filter = list(cfg.get("essay_source_filter", ["organic"]) or ["organic"])
+        train_ds = EssayPairDataset(
+            essay_train,
+            tok,
+            max_input_len=int(cfg.get("max_input_tokens", 512)),
+            max_target_len=int(cfg.get("max_target_tokens", 512)),
+            source_filter=source_filter,
+        )
+        val_ds = EssayPairDataset(
+            essay_val or essay_train[: max(1, len(essay_train) // 10)],
+            tok,
+            max_input_len=int(cfg.get("max_input_tokens", 512)),
+            max_target_len=int(cfg.get("max_target_tokens", 512)),
+            source_filter=source_filter,
+        )
+    else:
+        train_ds = RewriterDataset(
+            train_rows,
+            tok,
+            max_input_length=int(cfg.get("max_input_length", 512)),
+            max_target_length=int(cfg.get("max_target_length", 512)),
+        )
+        val_ds = RewriterDataset(
+            val_rows or train_rows[: max(1, len(train_rows) // 10)],
+            tok,
+            max_input_length=int(cfg.get("max_input_length", 512)),
+            max_target_length=int(cfg.get("max_target_length", 512)),
+        )
 
     torch_dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
     base = AutoModelForSeq2SeqLM.from_pretrained(model_id, torch_dtype=torch_dtype)
@@ -387,19 +544,30 @@ def train_from_config(cfg_path: Path, *, overrides: list[str] | None = None) -> 
     max_in_len = int(cfg.get("max_input_length", 512))
     gen_max = int(cfg.get("generation_max_new_tokens", cfg.get("max_target_length", 512)))
     gen_max = max(256, gen_max)
-    slop_callback = RewriterSlopCallback(
-        val_rows=val_rows,
-        tokenizer=tok,
-        detector_checkpoint=str(cfg.get("detector_checkpoint", "pangram/editlens_roberta-large")),
-        groq_model=str(cfg.get("groq_model", "llama-3.3-70b-versatile")),
-        essay_temperature=float(cfg.get("essay_temperature", 0.9)),
-        sample_n=int(cfg.get("rewriter_slop_eval_n", 4)),
-        device=device,
-        eval_strategy=eval_strategy,
-        eval_steps=eval_steps,
-        generation_max_new_tokens=gen_max,
-        max_input_length=max_in_len,
-    )
+    if mode == "essay":
+        slop_callback = EssayRewriterSlopCallback(
+            val_pairs=getattr(val_ds, "examples", []),
+            tokenizer=tok,
+            detector_checkpoint=str(cfg.get("detector_checkpoint", "pangram/editlens_roberta-large")),
+            n=int(cfg.get("rewriter_slop_eval_n", 20)),
+            device=device,
+            max_input_tokens=int(cfg.get("max_input_tokens", 512)),
+            max_new_tokens=gen_max,
+        )
+    else:
+        slop_callback = RewriterSlopCallback(
+            val_rows=val_rows,
+            tokenizer=tok,
+            detector_checkpoint=str(cfg.get("detector_checkpoint", "pangram/editlens_roberta-large")),
+            groq_model=str(cfg.get("groq_model", "llama-3.3-70b-versatile")),
+            essay_temperature=float(cfg.get("essay_temperature", 0.9)),
+            sample_n=int(cfg.get("rewriter_slop_eval_n", 4)),
+            device=device,
+            eval_strategy=eval_strategy,
+            eval_steps=eval_steps,
+            generation_max_new_tokens=gen_max,
+            max_input_length=max_in_len,
+        )
 
     ta: dict[str, Any] = {
         "output_dir": str(out_dir),
@@ -437,6 +605,12 @@ def train_from_config(cfg_path: Path, *, overrides: list[str] | None = None) -> 
             ta["max_steps"] = -1
     args = Seq2SeqTrainingArguments(**ta)
 
+    early = SlopEarlyStoppingCallback(
+        output_dir=str(out_dir),
+        patience=int(cfg.get("early_stopping_patience", 8)),
+    )
+    ta["load_best_model_at_end"] = False
+
     trainer = WeightedMixTrainer(
         model=model,
         args=args,
@@ -444,11 +618,15 @@ def train_from_config(cfg_path: Path, *, overrides: list[str] | None = None) -> 
         eval_dataset=val_ds,
         data_collator=collator,
         processing_class=tok,
-        callbacks=[slop_callback],
+        callbacks=[slop_callback, early],
         train_sampler=train_sampler,
         semantic_loss_weight=float(cfg.get("semantic_loss_weight", 0.0)),
     )
     trainer.train()
+    print(
+        json.dumps({"best_slop": early.best_slop, "best_slop_step": early.best_step}),
+        flush=True,
+    )
     adapter_dir = out_dir / "lora_adapter"
     model.save_pretrained(str(adapter_dir))
     tok.save_pretrained(str(adapter_dir))
