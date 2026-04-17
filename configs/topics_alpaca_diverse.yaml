@@ -1,35 +1,109 @@
-topics:
-  - the causes and consequences of the Great Depression
-  - the Cuban Missile Crisis and the Vietnam War compared as episodes of Cold War tension
-  - the impact of the coronavirus pandemic on the global economy
-  - the case for and against renewable energy as a replacement for fossil fuels
-  - why the election of Abraham Lincoln was a turning point in American history
-  - the historical significance of the Stonewall Uprising for civil rights
-  - the implications of artificial intelligence in health care delivery
-  - the effects of climate change on vulnerable populations
-  - the role of computational methods in understanding human language
-  - the role of a computer scientist in addressing modern societal challenges
-  - what it means for artificial intelligence to be explainable and why it matters
-  - whether blockchain technology delivers on its promise of decentralization
-  - the ethical implications of mass surveillance by governments and corporations
-  - whether social media companies should be regulated as public utilities
-  - the role of education in reducing economic inequality
-  - the long-term consequences of automation on the workforce
-  - whether nuclear energy should be part of a green energy transition
-  - the impact of globalization on local cultures and national identity
-  - the relationship between mental health and social media use in adolescents
-  - the moral responsibilities of wealthy nations toward climate refugees
-  - the role of scientific literacy in a functioning democracy
-  - whether gene editing technologies should be subject to international regulation
-  - the consequences of increasing political polarization in democratic societies
-  - the tension between national security interests and individual privacy rights
-  - the ethics of wealth concentration in the age of technology billionaires
-
-provenance: "manually curated from yahma/alpaca-cleaned essay-compatible subset + manual additions"
 mapping_rules:
-  - "Discuss X -> the causes and consequences of X"
-  - "Compare X and Y -> X and Y compared"
-  - "Explain the implications of X -> the implications of X"
-  - "Describe the effects of X -> the effects of X on Y"
-  - "Explain why X -> why X"
-  - "Analyze X -> the significance of X"
+- Discuss X -> the causes and consequences of X
+- Compare X and Y -> X and Y compared
+- Explain the implications of X -> the implications of X
+- Describe the effects of X -> the effects of X on Y
+- Explain why X -> why X
+- Analyze X -> the significance of X
+provenance: manually curated from yahma/alpaca-cleaned essay-compatible subset + manual
+  additions
+topics:
+- the causes and consequences of the Great Depression
+- the Cuban Missile Crisis and the Vietnam War compared as episodes of Cold War tension
+- the impact of the coronavirus pandemic on the global economy
+- the case for and against renewable energy as a replacement for fossil fuels
+- why the election of Abraham Lincoln was a turning point in American history
+- the historical significance of the Stonewall Uprising for civil rights
+- the implications of artificial intelligence in health care delivery
+- the effects of climate change on vulnerable populations
+- the role of computational methods in understanding human language
+- the role of a computer scientist in addressing modern societal challenges
+- what it means for artificial intelligence to be explainable and why it matters
+- whether blockchain technology delivers on its promise of decentralization
+- the ethical implications of mass surveillance by governments and corporations
+- whether social media companies should be regulated as public utilities
+- the role of education in reducing economic inequality
+- the long-term consequences of automation on the workforce
+- whether nuclear energy should be part of a green energy transition
+- the impact of globalization on local cultures and national identity
+- the relationship between mental health and social media use in adolescents
+- the moral responsibilities of wealthy nations toward climate refugees
+- the role of scientific literacy in a functioning democracy
+- whether gene editing technologies should be subject to international regulation
+- the consequences of increasing political polarization in democratic societies
+- the tension between national security interests and individual privacy rights
+- the ethics of wealth concentration in the age of technology billionaires
+- the impact of algorithmic bias on hiring and lending decisions
+- whether facial recognition technology should be banned in public spaces
+- the ethical responsibilities of social media platforms toward mental health
+- how open source software changed the economics of the technology industry
+- whether technology companies have too much influence over public discourse
+- the case for and against a universal basic income in an automated economy
+- whether the gig economy exploits workers or expands economic opportunity
+- the role of encryption in protecting civil liberties
+- how recommendation algorithms shape political beliefs
+- the ethics of data ownership and who should profit from personal data
+- the tension between economic development and environmental conservation
+- whether carbon taxes are an effective tool for reducing emissions
+- the ethics of geoengineering as a response to climate change
+- how agricultural practices contribute to climate change and what should change
+- whether wealthy nations owe climate reparations to developing countries
+- the role of individual consumer choices in addressing systemic environmental problems
+- how water scarcity will reshape geopolitics in the coming decades
+- the ethics of fast fashion and its environmental consequences
+- whether electric vehicles are genuinely sustainable
+- the case for and against abolishing the death penalty
+- whether prison systems should prioritize rehabilitation over punishment
+- the role of restorative justice in addressing community harm
+- how systemic racism shapes outcomes in the criminal justice system
+- whether drug decriminalization reduces harm or increases it
+- the tension between free speech and protection from hate speech online
+- whether voting should be mandatory in democratic societies
+- the case for lowering the voting age to sixteen
+- how dark money undermines democratic accountability
+- whether lobbying should be banned or more strictly regulated
+- the ethics of rationing healthcare in resource-constrained systems
+- whether pharmaceutical companies should be allowed to patent life-saving drugs
+- the case for and against legalizing assisted dying
+- how food deserts perpetuate health inequality in low-income communities
+- the ethics of using animals in medical research
+- whether mental health should receive the same insurance coverage as physical health
+- the role of public health infrastructure in pandemic preparedness
+- the ethics of genetic screening for heritable diseases
+- how antibiotic resistance became a global health crisis and what to do about it
+- whether standardized testing does more harm than good
+- the case for making higher education free
+- how student debt shapes life outcomes and what should be done about it
+- the role of critical thinking education in countering misinformation
+- whether history education in schools should be more honest about colonialism
+- the impact of smartphones on attention and learning in schools
+- whether affirmative action in university admissions is justified
+- the ethics of for-profit education
+- how public libraries serve democracy and why their funding matters
+- the case for and against a higher minimum wage
+- whether wealth taxes are economically sound or counterproductive
+- how supply chain fragility became a national security issue
+- the ethics of outsourcing labor to lower-wage countries
+- whether unions are still necessary in the modern economy
+- how housing unaffordability is reshaping cities and social mobility
+- the role of antitrust law in regulating platform monopolies
+- whether shareholder primacy is destroying long-term corporate value
+- how inherited wealth perpetuates inequality across generations
+- the ethics of humanitarian military intervention
+- whether economic sanctions are an effective foreign policy tool
+- the role of international institutions in resolving global conflicts
+- the ethics of immigration enforcement and border policy
+- whether nationalism is a force for good or ill in the modern world
+- the consequences of foreign aid dependency for developing nations
+- how disinformation campaigns threaten democratic elections
+- the case for global governance of artificial intelligence
+- whether free trade agreements benefit or harm working people
+- the ethics of cultural appropriation versus cultural exchange
+- whether cancel culture stifles free expression or enforces accountability
+- the role of art and literature in shaping moral values
+- how masculinity norms harm men and the people around them
+- the case for reparations for descendants of enslaved people
+- whether social media has made political activism more or less effective
+- the ethics of predictive policing and algorithmic sentencing
+- how climate change disproportionately affects indigenous communities
+- whether space exploration spending is justified given problems on earth
