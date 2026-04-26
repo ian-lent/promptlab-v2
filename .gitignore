@@ -15,3 +15,10 @@ data/cache/
 # Ad-hoc bundles
 *.zip
 AWSCLIV2.pkg
+
+# Training data — committed explicitly
+!outputs/
+!outputs/cotrain/
+!outputs/rewriter/
+!outputs/cotrain/prompt_pairs.jsonl
+!outputs/rewriter/essay_pairs_contrastive.jsonl

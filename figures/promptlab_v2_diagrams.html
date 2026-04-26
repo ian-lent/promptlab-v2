@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PromptLab v2 — Diagrams</title>
+<style>
+  body { background: #0e0e1a; color: #e0e0f0; font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 32px; }
+  h1 { color: #4dd6d9; font-size: 22px; margin-bottom: 4px; }
+  .subtitle { color: #888aaa; font-size: 13px; margin-bottom: 40px; }
+  .figure { margin-bottom: 48px; }
+  .figure h2 { color: #b09aee; font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+  .figure p { color: #666688; font-size: 12px; margin: 0 0 12px 0; }
+  .figure svg { max-width: 100%; border-radius: 10px; display: block; }
+  .download-row { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+  .dl-btn {
+    display: inline-block; padding: 6px 14px; border-radius: 6px;
+    background: #0d2525; border: 1px solid #0A9396; color: #4dd6d9;
+    font-size: 12px; text-decoration: none; cursor: pointer;
+  }
+  .dl-btn:hover { background: #0A9396; color: #fff; }
+  hr { border: none; border-top: 1px solid #2a2a4a; margin: 40px 0; }
+</style>
+</head>
+<body>
+<h1>PromptLab v2 — Diagrams</h1>
+<p class="subtitle">STAT 4830 · University of Pennsylvania · Right-click any diagram → Save image as… to export as SVG or PNG</p>
+
+<div class="figure">
+  <h2>Figure 1 — Optimization Slop Formula</h2>
+  <p>The drift-penalized scoring function used by the deslop evolutionary optimizer.</p>
+  <svg width="680" height="120" viewBox="0 0 680 120" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif">
+  <rect width="680" height="120" fill="#1a1a2e"/>
+  <rect x="20" y="14" width="640" height="88" rx="8" fill="#252540" stroke="#0A9396" stroke-width="2"/>
+
+  <text x="38" y="64" font-size="14" font-weight="600" fill="#e0e0f0">optimization_slop  =</text>
+
+  <!-- detector_slop box -->
+  <rect x="192" y="38" width="118" height="34" rx="4" fill="#1a1a2e" stroke="#0A9396" stroke-width="1.5"/>
+  <text x="251" y="56" text-anchor="middle" font-size="13" font-weight="600" fill="#e0e0f0">detector_slop</text>
+  <text x="251" y="72" text-anchor="middle" font-size="10" fill="#888aaa">task reward</text>
+
+  <text x="322" y="62" text-anchor="middle" font-size="20" fill="#888aaa">+</text>
+
+  <!-- alpha cos box -->
+  <rect x="336" y="38" width="86" height="34" rx="4" fill="#1a1a2e" stroke="#444466" stroke-width="1"/>
+  <text x="379" y="56" text-anchor="middle" font-size="13" fill="#e0e0f0">α·(1−cos)</text>
+  <text x="379" y="72" text-anchor="middle" font-size="10" fill="#888aaa">meaning</text>
+
+  <text x="432" y="62" text-anchor="middle" font-size="20" fill="#888aaa">+</text>
+
+  <!-- beta ROUGE box -->
+  <rect x="446" y="38" width="92" height="34" rx="4" fill="#1a1a2e" stroke="#444466" stroke-width="1"/>
+  <text x="492" y="56" text-anchor="middle" font-size="13" fill="#e0e0f0">β·(1−ROUGE)</text>
+  <text x="492" y="72" text-anchor="middle" font-size="10" fill="#888aaa">overlap</text>
+
+  <text x="548" y="62" text-anchor="middle" font-size="20" fill="#888aaa">+</text>
+
+  <!-- gamma BERTScore box -->
+  <rect x="562" y="38" width="90" height="34" rx="4" fill="#1a1a2e" stroke="#444466" stroke-width="1"/>
+  <text x="607" y="56" text-anchor="middle" font-size="13" fill="#e0e0f0">γ·BERTScore</text>
+  <text x="607" y="72" text-anchor="middle" font-size="10" fill="#888aaa">fluency</text>
+
+  <!-- drift penalty bracket -->
+  <rect x="326" y="30" width="336" height="58" rx="4" fill="none" stroke="#444466" stroke-width="0.5" stroke-dasharray="4,3"/>
+  <text x="494" y="24" text-anchor="middle" font-size="10" fill="#888aaa">drift penalty — keeps essays coherent</text>
+</svg>
+</div>
+
+<hr>
+
+<div class="figure">
+  <h2>Figure 2 — Stage 1 Pipeline: How Essay Pairs Are Generated</h2>
+  <p>Two-track flow showing how baseline (generic prompt) and evolved (deslop optimizer) essays are paired for co-training.</p>
+  <svg width="680" height="260" viewBox="0 0 680 260" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#888aaa" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arr-r" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#e07060" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arr-t" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#0A9396" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <rect width="680" height="260" fill="#1a1a2e"/>
+
+  <text x="340" y="20" text-anchor="middle" font-size="11" fill="#888aaa">Stage 1 — deslop optimizer · how essay pairs are generated</text>
+
+  <!-- Track labels -->
+  <text x="18" y="58" font-size="10" fill="#888aaa">baseline</text>
+  <text x="18" y="186" font-size="10" fill="#888aaa">evolved</text>
+
+  <!-- Essay topic box -->
+  <rect x="52" y="96" width="82" height="48" rx="8" fill="#252540" stroke="#444466" stroke-width="1"/>
+  <text x="93" y="117" text-anchor="middle" font-size="13" font-weight="600" fill="#e0e0f0">Essay</text>
+  <text x="93" y="133" text-anchor="middle" font-size="13" font-weight="600" fill="#e0e0f0">topic</text>
+
+  <!-- Fork lines -->
+  <path d="M134 120 L146 120 L146 56 L158 56" fill="none" stroke="#888aaa" stroke-width="1" marker-end="url(#arr)"/>
+  <path d="M134 120 L146 120 L146 183 L158 183" fill="none" stroke="#888aaa" stroke-width="1" marker-end="url(#arr)"/>
+
+  <!-- BASELINE TRACK -->
+  <rect x="158" y="32" width="132" height="48" rx="8" fill="#252540" stroke="#444466" stroke-width="1"/>
+  <text x="224" y="53" text-anchor="middle" font-size="13" font-weight="600" fill="#e0e0f0">Generic prompt</text>
+  <text x="224" y="70" text-anchor="middle" font-size="10" fill="#888aaa">write essay about X</text>
+  <line x1="290" y1="56" x2="306" y2="56" stroke="#888aaa" stroke-width="1" marker-end="url(#arr)"/>
+
+  <rect x="306" y="32" width="138" height="48" rx="8" fill="#2a1a1a" stroke="#c0392b" stroke-width="1.5"/>
+  <text x="375" y="53" text-anchor="middle" font-size="13" font-weight="600" fill="#e07060">Baseline essay</text>
+  <text x="375" y="70" text-anchor="middle" font-size="10" fill="#c07060">high-slop · ~0.85</text>
+
+  <!-- EVOLVED TRACK -->
+  <rect x="158" y="159" width="132" height="48" rx="8" fill="#1e1a2e" stroke="#7c5cbe" stroke-width="1.5"/>
+  <text x="224" y="179" text-anchor="middle" font-size="13" font-weight="600" fill="#b09aee">deslop</text>
+  <text x="224" y="195" text-anchor="middle" font-size="10" fill="#9a88cc">mutate · score · ↻ inject</text>
+  <line x1="290" y1="183" x2="306" y2="183" stroke="#888aaa" stroke-width="1" marker-end="url(#arr)"/>
+
+  <rect x="306" y="159" width="114" height="48" rx="8" fill="#1e1a2e" stroke="#7c5cbe" stroke-width="1.5"/>
+  <text x="363" y="179" text-anchor="middle" font-size="13" font-weight="600" fill="#b09aee">Best prompt</text>
+  <text x="363" y="195" text-anchor="middle" font-size="10" fill="#9a88cc">evolved</text>
+  <line x1="420" y1="183" x2="436" y2="183" stroke="#888aaa" stroke-width="1" marker-end="url(#arr)"/>
+
+  <rect x="436" y="159" width="108" height="48" rx="8" fill="#0d2525" stroke="#0A9396" stroke-width="1.5"/>
+  <text x="490" y="179" text-anchor="middle" font-size="13" font-weight="600" fill="#4dd6d9">Best essay</text>
+  <text x="490" y="195" text-anchor="middle" font-size="10" fill="#3ab8bb">low-slop</text>
+
+  <!-- Convergence arrows to essay pairs -->
+  <path d="M444 56 L548 56 L548 108 L562 108" fill="none" stroke="#888aaa" stroke-width="1" marker-end="url(#arr)"/>
+  <path d="M544 183 L554 183 L554 136 L562 136" fill="none" stroke="#888aaa" stroke-width="1" marker-end="url(#arr)"/>
+
+  <!-- Essay pairs output -->
+  <rect x="562" y="94" width="100" height="64" rx="8" fill="#0d2525" stroke="#0A9396" stroke-width="1.5"/>
+  <text x="612" y="118" text-anchor="middle" font-size="13" font-weight="600" fill="#4dd6d9">Essay pairs</text>
+  <text x="612" y="134" text-anchor="middle" font-size="10" fill="#3ab8bb">high + low slop</text>
+
+  <!-- bottom note -->
+  <text x="340" y="238" text-anchor="middle" font-size="10" fill="#666688">372 pairs across 77 topics — each pair: (baseline essay, evolved essay)</text>
+</svg>
+</div>
+
+<hr>
+
+<div class="figure">
+  <h2>Figure 3 — Few-Shot Injection Mechanism</h2>
+  <p>How winning essays accumulate across rounds and are prepended to future generation calls, making the search self-improving.</p>
+  <svg width="680" height="270" viewBox="0 0 680 270" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#888aaa" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <rect width="680" height="270" fill="#1a1a2e"/>
+
+  <!-- Column headers -->
+  <text x="138" y="18" text-anchor="middle" font-size="12" font-weight="600" fill="#888aaa">Round 1</text>
+  <text x="340" y="18" text-anchor="middle" font-size="12" font-weight="600" fill="#888aaa">Round 2</text>
+  <text x="542" y="18" text-anchor="middle" font-size="12" font-weight="600" fill="#888aaa">Round N</text>
+
+  <!-- Dividers -->
+  <line x1="239" y1="10" x2="239" y2="250" stroke="#2a2a4a" stroke-width="1"/>
+  <line x1="441" y1="10" x2="441" y2="250" stroke="#2a2a4a" stroke-width="1"/>
+
+  <!-- ── ROUND 1 ── -->
+  <rect x="55" y="28" width="166" height="48" rx="8" fill="#252540" stroke="#444466" stroke-width="1"/>
+  <text x="138" y="49" text-anchor="middle" font-size="13" font-weight="600" fill="#e0e0f0">Topic prompt</text>
+  <text x="138" y="66" text-anchor="middle" font-size="10" fill="#888aaa">write essay about X</text>
+  <line x1="138" y1="76" x2="138" y2="96" stroke="#888aaa" stroke-width="1" marker-end="url(#arr)"/>
+
+  <rect x="55" y="96" width="166" height="36" rx="8" fill="#2a1a1a" stroke="#c0392b" stroke-width="1.5"/>
+  <text x="138" y="119" text-anchor="middle" font-size="13" font-weight="600" fill="#e07060">Essay · ~0.85 slop</text>
+
+  <!-- Dashed save arrow R1→R2 -->
+  <path d="M221 114 L239 114 L239 46 L257 46" fill="none" stroke="#555577" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#arr)"/>
+
+  <!-- ── ROUND 2 ── -->
+  <rect x="257" y="28" width="166" height="36" rx="8" fill="#0d2525" stroke="#0A9396" stroke-width="1.5"/>
+  <text x="340" y="44" text-anchor="middle" font-size="12" font-weight="600" fill="#4dd6d9">Winning essay 1</text>
+  <text x="340" y="58" text-anchor="middle" font-size="10" fill="#3ab8bb">prepended from pool</text>
+
+  <rect x="257" y="68" width="166" height="48" rx="8" fill="#252540" stroke="#444466" stroke-width="1"/>
+  <text x="340" y="89" text-anchor="middle" font-size="13" font-weight="600" fill="#e0e0f0">Topic prompt</text>
+  <text x="340" y="106" text-anchor="middle" font-size="10" fill="#888aaa">write essay about X</text>
+  <line x1="340" y1="116" x2="340" y2="136" stroke="#888aaa" stroke-width="1" marker-end="url(#arr)"/>
+
+  <rect x="257" y="136" width="166" height="36" rx="8" fill="#252540" stroke="#444466" stroke-width="1"/>
+  <text x="340" y="159" text-anchor="middle" font-size="13" font-weight="600" fill="#c0c0d8">Essay · improved</text>
+
+  <!-- Dashed save arrow R2→RN -->
+  <path d="M423 154 L441 154 L441 80 L459 80" fill="none" stroke="#555577" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#arr)"/>
+
+  <!-- ── ROUND N ── -->
+  <rect x="459" y="28" width="166" height="30" rx="8" fill="#0d2525" stroke="#0A9396" stroke-width="1.5"/>
+  <text x="542" y="48" text-anchor="middle" font-size="12" font-weight="600" fill="#4dd6d9">Winning essay 1</text>
+
+  <rect x="459" y="62" width="166" height="30" rx="8" fill="#0d2525" stroke="#0A9396" stroke-width="1.5"/>
+  <text x="542" y="82" text-anchor="middle" font-size="12" font-weight="600" fill="#4dd6d9">Winning essay 2</text>
+
+  <rect x="459" y="96" width="166" height="24" rx="6" fill="#0d2525" stroke="#0A9396" stroke-width="0.5" opacity="0.6"/>
+  <text x="542" y="113" text-anchor="middle" font-size="11" fill="#3ab8bb">· · · more examples</text>
+
+  <rect x="459" y="124" width="166" height="48" rx="8" fill="#252540" stroke="#444466" stroke-width="1"/>
+  <text x="542" y="145" text-anchor="middle" font-size="13" font-weight="600" fill="#e0e0f0">Topic prompt</text>
+  <text x="542" y="161" text-anchor="middle" font-size="10" fill="#888aaa">write essay about X</text>
+  <line x1="542" y1="172" x2="542" y2="192" stroke="#888aaa" stroke-width="1" marker-end="url(#arr)"/>
+
+  <rect x="459" y="192" width="166" height="36" rx="8" fill="#0d2525" stroke="#0A9396" stroke-width="2"/>
+  <text x="542" y="215" text-anchor="middle" font-size="13" font-weight="600" fill="#4dd6d9">Essay · ~0.01 slop</text>
+
+  <!-- Bottom note -->
+  <text x="340" y="252" text-anchor="middle" font-size="10" fill="#666688">each round the model sees N−1 examples of successful evasion — learns patterns without being told what they are</text>
+</svg>
+</div>
+
+<hr>
+
+<div class="figure">
+  <h2>Figure 4 — Unified PromptLab v2 Pipeline</h2>
+  <p>Full end-to-end system: deslop optimizer → co-training accumulation → T5+LoRA rewriter training → inference.</p>
+  <svg width="680" height="740" viewBox="0 0 680 740" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#888aaa" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arr-dash" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#555577" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <rect width="680" height="740" fill="#1a1a2e"/>
+
+  <!-- ── Essay topics ── -->
+  <rect x="280" y="18" width="120" height="40" rx="8" fill="#252540" stroke="#444466" stroke-width="1"/>
+  <text x="340" y="43" text-anchor="middle" font-size="13" font-weight="600" fill="#e0e0f0">Essay topics</text>
+  <line x1="340" y1="58" x2="340" y2="80" stroke="#888aaa" stroke-width="1" marker-end="url(#arr)"/>
+
+  <!-- ── deslop optimizer container ── -->
+  <rect x="28" y="80" width="624" height="232" rx="14" fill="#1e1a2e" stroke="#7c5cbe" stroke-width="1.5"/>
+  <text x="50" y="102" font-size="13" font-weight="700" fill="#b09aee">deslop optimizer</text>
+  <text x="50" y="118" font-size="10" fill="#9a88cc">population-based evolutionary search · essays via llama-3.3-70b (Groq)</text>
+
+  <!-- Prompt population -->
+  <rect x="48" y="132" width="140" height="52" rx="8" fill="#1a1a2e" stroke="#7c5cbe" stroke-width="1.5"/>
+  <text x="118" y="153" text-anchor="middle" font-size="12" font-weight="600" fill="#b09aee">Prompt pop.</text>
+  <text x="118" y="169" text-anchor="middle" font-size="10" fill="#9a88cc">mutate + crossover</text>
+  <line x1="188" y1="158" x2="206" y2="158" stroke="#888aaa" stroke-width="1" marker-end="url(#arr)"/>
+
+  <!-- llama 8b -->
+  <rect x="206" y="132" width="126" height="52" rx="8" fill="#1a1a2e" stroke="#7c5cbe" stroke-width="1.5"/>
+  <text x="269" y="153" text-anchor="middle" font-size="12" font-weight="600" fill="#b09aee">llama-3.1-8b</text>
+  <text x="269" y="169" text-anchor="middle" font-size="10" fill="#9a88cc">mutation guide</text>
+  <line x1="332" y1="158" x2="350" y2="158" stroke="#888aaa" stroke-width="1" marker-end="url(#arr)"/>
+
+  <!-- llama 70b -->
+  <rect x="350" y="132" width="132" height="52" rx="8" fill="#1a1a2e" stroke="#7c5cbe" stroke-width="1.5"/>
+  <text x="416" y="153" text-anchor="middle" font-size="12" font-weight="600" fill="#b09aee">llama-3.3-70b</text>
+  <text x="416" y="169" text-anchor="middle" font-size="10" fill="#9a88cc">essay generation</text>
+  <line x1="482" y1="158" x2="500" y2="158" stroke="#888aaa" stroke-width="1" marker-end="url(#arr)"/>
+
+  <!-- SlopDetector -->
+  <rect x="500" y="132" width="140" height="52" rx="8" fill="#2a1010" stroke="#c0392b" stroke-width="1.5"/>
+  <text x="570" y="153" text-anchor="middle" font-size="12" font-weight="600" fill="#e07060">SlopDetector</text>
+  <text x="570" y="169" text-anchor="middle" font-size="10" fill="#c07060">roberta-large</text>
+  <line x1="570" y1="184" x2="570" y2="200" stroke="#888aaa" stroke-width="1" marker-end="url(#arr)"/>
+
+  <!-- Few-shot pool -->
+  <rect x="48" y="200" width="140" height="72" rx="8" fill="#0d2525" stroke="#0A9396" stroke-width="1.5"/>
+  <text x="118" y="222" text-anchor="middle" font-size="12" font-weight="600" fill="#4dd6d9">Few-shot pool</text>
+  <text x="118" y="238" text-anchor="middle" font-size="10" fill="#3ab8bb">winning essays saved</text>
+  <text x="118" y="252" text-anchor="middle" font-size="10" fill="#3ab8bb">injected each round</text>
+  <line x1="118" y1="200" x2="118" y2="184" stroke="#555577" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#arr-dash)"/>
+
+  <!-- Drift guard -->
+  <rect x="206" y="200" width="434" height="52" rx="8" fill="#2a1010" stroke="#c0392b" stroke-width="1" opacity="0.85"/>
+  <text x="423" y="220" text-anchor="middle" font-size="12" font-weight="600" fill="#e07060">Drift guard</text>
+  <text x="423" y="238" text-anchor="middle" font-size="10" fill="#c07060">score = detector_slop + α·cos_sim + β·ROUGE-L + γ·BERTScore</text>
+
+  <!-- Feedback loop -->
+  <path d="M423 252 L423 278 L36 278 L36 158 L48 158" fill="none" stroke="#555577" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arr-dash)"/>
+  <text x="228" y="274" text-anchor="middle" font-size="10" fill="#666688">select best · update population</text>
+
+  <!-- ── Co-training accumulation ── -->
+  <line x1="340" y1="312" x2="340" y2="332" stroke="#888aaa" stroke-width="1" marker-end="url(#arr)"/>
+  <rect x="28" y="332" width="624" height="72" rx="12" fill="#0d2020" stroke="#0A9396" stroke-width="1.5"/>
+  <text x="340" y="356" text-anchor="middle" font-size="13" font-weight="700" fill="#4dd6d9">Co-training accumulation</text>
+  <text x="340" y="372" text-anchor="middle" font-size="10" fill="#3ab8bb">372 pairs · 40 contrastive (gap&gt;0.1) · 77 topics · best score: 0.011</text>
+  <text x="340" y="388" text-anchor="middle" font-size="10" fill="#3ab8bb">each pair: baseline essay (high-slop) + best optimizer essay (low-slop)</text>
+
+  <!-- ── Training config ── -->
+  <line x1="340" y1="404" x2="340" y2="426" stroke="#888aaa" stroke-width="1" marker-end="url(#arr)"/>
+
+  <rect x="42" y="426" width="140" height="64" rx="8" fill="#252540" stroke="#444466" stroke-width="1"/>
+  <text x="112" y="449" text-anchor="middle" font-size="12" font-weight="600" fill="#e0e0f0">Optimizer</text>
+  <text x="112" y="465" text-anchor="middle" font-size="10" fill="#888aaa">AdamW · wd=0.01</text>
+
+  <rect x="195" y="426" width="140" height="64" rx="8" fill="#252540" stroke="#444466" stroke-width="1"/>
+  <text x="265" y="449" text-anchor="middle" font-size="12" font-weight="600" fill="#e0e0f0">LR schedule</text>
+  <text x="265" y="465" text-anchor="middle" font-size="10" fill="#888aaa">cosine · LR=1e-4</text>
+
+  <rect x="348" y="426" width="140" height="64" rx="8" fill="#252540" stroke="#444466" stroke-width="1"/>
+  <text x="418" y="449" text-anchor="middle" font-size="12" font-weight="600" fill="#e0e0f0">Curriculum</text>
+  <text x="418" y="465" text-anchor="middle" font-size="10" fill="#888aaa">gap-desc. order</text>
+
+  <rect x="501" y="426" width="140" height="64" rx="8" fill="#0d2525" stroke="#0A9396" stroke-width="1.5"/>
+  <text x="571" y="449" text-anchor="middle" font-size="12" font-weight="600" fill="#4dd6d9">LoRA r=16</text>
+  <text x="571" y="465" text-anchor="middle" font-size="10" fill="#3ab8bb">T5-base · ~800K</text>
+
+  <!-- ── Early stopping ── -->
+  <rect x="28" y="506" width="624" height="68" rx="12" fill="#2a2000" stroke="#d4a017" stroke-width="1.5"/>
+  <text x="340" y="528" text-anchor="middle" font-size="13" font-weight="700" fill="#f0c040">Early stopping — track slop_mean, not eval_loss</text>
+  <text x="340" y="546" text-anchor="middle" font-size="10" fill="#c8a030">eval_loss diverges after step 50 · beam search n=4 for stable evals</text>
+  <text x="340" y="562" text-anchor="middle" font-size="10" fill="#c8a030">best checkpoint at step 50 (NQM noise floor: 800K params / 40 pairs)</text>
+
+  <!-- ── Inference ── -->
+  <line x1="340" y1="574" x2="340" y2="594" stroke="#888aaa" stroke-width="1" marker-end="url(#arr)"/>
+
+  <rect x="42" y="594" width="154" height="52" rx="8" fill="#252540" stroke="#444466" stroke-width="1"/>
+  <text x="119" y="615" text-anchor="middle" font-size="12" font-weight="600" fill="#e0e0f0">High-slop essay</text>
+  <text x="119" y="631" text-anchor="middle" font-size="10" fill="#888aaa">generic prompt</text>
+  <line x1="196" y1="620" x2="212" y2="620" stroke="#888aaa" stroke-width="1" marker-end="url(#arr)"/>
+
+  <rect x="212" y="594" width="154" height="52" rx="8" fill="#0d2525" stroke="#0A9396" stroke-width="1.5"/>
+  <text x="289" y="615" text-anchor="middle" font-size="12" font-weight="600" fill="#4dd6d9">T5+LoRA rewriter</text>
+  <text x="289" y="631" text-anchor="middle" font-size="10" fill="#3ab8bb">1 forward pass</text>
+  <line x1="366" y1="620" x2="382" y2="620" stroke="#888aaa" stroke-width="1" marker-end="url(#arr)"/>
+
+  <rect x="382" y="594" width="250" height="52" rx="8" fill="#0d2525" stroke="#0A9396" stroke-width="1.5"/>
+  <text x="507" y="615" text-anchor="middle" font-size="12" font-weight="600" fill="#4dd6d9">Low-slop essay · 0.0998</text>
+  <text x="507" y="631" text-anchor="middle" font-size="10" fill="#3ab8bb">−74% detectability vs baseline</text>
+
+  <!-- ── Result callout ── -->
+  <rect x="28" y="662" width="624" height="52" rx="12" fill="#0d2525" stroke="#0A9396" stroke-width="2"/>
+  <text x="340" y="683" text-anchor="middle" font-size="13" font-weight="700" fill="#4dd6d9">Result: −74% · slop_mean 0.0998 on 20 val pairs, 77 topics</text>
+  <text x="340" y="701" text-anchor="middle" font-size="10" fill="#3ab8bb">0.391 prompt-mode → 0.189 essay pivot → 0.0998 final (LR=1e-4, r=16)</text>
+</svg>
+</div>
+
+</body>
+</html>
