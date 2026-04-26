@@ -52,30 +52,35 @@ T5-base + LoRA (r=16, ~800K trainable parameters) is trained on the contrastive 
 ---
 
 ## Repo layout
+```
 promptlab-v2/
-├── configs/                          # YAML configs for deslop, cotrain, rewriter
-│   └── topics_alpaca_diverse.yaml    # 100-topic set used for final run
+├── configs/
+│   └── topics_alpaca_diverse.yaml   # 100-topic set used for final run
 ├── cotrain/
-│   └── loop.py                       # co-training loop; saves best_essay alongside each pair
-├── deslop/                           # evolutionary optimizer
+│   └── loop.py                      # co-training loop; saves best_essay alongside each pair
+├── deslop/                          # evolutionary optimizer
 ├── detector/
-│   └── model.py                      # SlopDetector (editlens/roberta-large)
+│   └── model.py                     # SlopDetector (editlens/roberta-large)
 ├── rewriter/
-│   ├── train.py                      # T5+LoRA training (essay mode, Seq2SeqTrainer)
-│   ├── essay_dataset.py              # curriculum dataset with gap-descending sort
-│   └── generate_essay_pairs.py       # generates contrastive pairs from cotrain output
+│   ├── train.py                     # T5+LoRA training (essay mode, Seq2SeqTrainer)
+│   ├── essay_dataset.py             # curriculum dataset with gap-descending sort
+│   └── generate_essay_pairs.py      # generates contrastive pairs from cotrain output
 ├── notebooks/
-│   └── promptlab_v2_demo.ipynb       # 3-adapter comparison demo (v1/v2/v3)
-├── figures/                          # pipeline diagrams (SVG)
+│   ├── promptlab_v2_demo.ipynb      # 3-adapter comparison demo (v1/v2/v3)
+│   ├── cotrain_colab.ipynb          # co-training run notebook
+│   └── cotrain_report.ipynb         # co-training results and analysis
+├── figures/
 │   ├── fig1_optimization_formula.svg
 │   ├── fig2_stage1_pipeline.svg
 │   ├── fig3_few_shot_injection.svg
-│   └── fig4_unified_pipeline.svg
+│   ├── fig4_unified_pipeline.svg
+│   └── promptlab_v2_diagrams.html   # all diagrams in one viewer
 ├── docs/
-│   └── promptlab_v2_report_final.md  # full experimental report
+│   └── promptlab_v2_report_final.md # full experimental report
 └── outputs/
-└── cotrain/
-└── prompt_pairs.jsonl        # 372 accumulated co-training pairs
+    └── cotrain/
+        └── prompt_pairs.jsonl       # 372 accumulated co-training pairs
+```
 
 ---
 
