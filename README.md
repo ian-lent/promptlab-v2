@@ -1,106 +1,151 @@
-# PromptLab v2 — Deslop via adversarial co-training
+markdown# PromptLab v2 — AI Slop Reduction via Adversarial Co-Training
 
-This package implements a **prompt-level** pipeline to reduce AI “slop” scores from an EditLens-style detector: an evolutionary **deslop optimizer** competes with a **retrainable slop detector**, and a **prompt rewriter** is distilled from logged prompt pairs.
+[![Open Demo In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/ian-lent/promptlab-v2/blob/main/notebooks/promptlab_v2_demo.ipynb)
 
-## Layout
+STAT 4830 · University of Pennsylvania
 
-- `configs/` — YAML for detector, deslop, co-training, rewriter, and eval
-- `data/` — HuggingFace downloads, mirror dataset CLI, dataset merge
-- `detector/` — `SlopDetector`, training, inference, calibration
-- `deslop/` — prompt bank, LLM mutator, evolutionary optimizer, constraints
-- `cotrain/` — adversarial loop, data accumulation, pair logging, stopping
-- `rewriter/` — pair prep, QLoRA fine-tuning, inference, optional RL refine stub
-- `eval/` — metrics, baselines, end-to-end eval script
-- `notebooks/` — exploratory and demo notebooks (stubs; fill in as you run experiments)
-- `scripts/` — shell entrypoints
+A two-stage pipeline that reduces the AI-detectability of generated essays. An evolutionary optimizer (deslop) searches the prompt space guided by a fixed classifier, accumulating contrastive essay pairs. A T5-base model fine-tuned with LoRA is then trained to perform essay-to-essay rewriting in a single forward pass.
 
-## Environment
+**Final result:** 0.0998 mean slop on 20 held-out val pairs — a 74% reduction from the 0.391 prompt-mode baseline.
+
+---
+
+## How it works
+
+### Stage 1 — deslop optimizer
+
+The optimizer maintains a population of prompt candidates and applies mutation and crossover operations guided by `llama-3.1-8b-instant`. Essays are generated via `llama-3.3-70b-versatile` through the Groq API and scored by a fixed detector (`editlens/roberta-large`, "SlopDetector"). The scoring function includes a drift penalty to prevent the optimizer from gaming the detector with incoherent text:
+optimization_slop = detector_slop
++ α·(1 − cosine_similarity)
++ β·(1 − ROUGE-L)
++ γ·BERTScore_penalty
+
+**Few-shot injection** makes the search self-improving: winning low-slop essays from prior rounds are prepended as examples to future generation calls, so the optimizer accumulates stylistic knowledge rather than rediscovering it each round.
+
+Output: **372 co-training pairs** (40 contrastive, gap > 0.1) across **77 unique topics**.
+
+### Stage 2 — T5+LoRA rewriter
+
+T5-base + LoRA (r=16, ~800K trainable parameters) is trained on the contrastive pairs to rewrite high-slop essays directly to low-slop essays in a single forward pass. Key training decisions:
+
+- **AdamW** with `weight_decay=0.01`
+- **Cosine LR decay** from `LR=1e-4` with 50 warmup steps
+- **Curriculum ordering**: training pairs sorted by contrastive gap descending (hardest signal first)
+- **Early stopping on `slop_mean`**, not `eval_loss` — the two diverge after step 50 as the model memorizes
+- **Deterministic beam search** (`num_beams=4`, `do_sample=False`) in the eval callback for stable checkpoint comparisons
+
+---
+
+## Results
+
+| Run | Architecture | Train Pairs | Val Pairs | Best Slop | Best Step | Notes |
+|-----|-------------|-------------|-----------|-----------|-----------|-------|
+| Organic baseline | Prompt→Prompt | ~34 | 4 | 0.391 | ~150 | Starting point |
+| + 2272 Alpaca | Prompt→Prompt | 2306 | 14 | 0.580 | 100 | ❌ Wrong distribution |
+| Organic long run | Prompt→Prompt | ~34 | 14 | 0.759 | 1300 | ❌ Overfitting |
+| Essay pivot, 11 pairs | Essay→Essay | 11 | 6 | 0.189 | 50 | ✓ Architecture pivot −52% |
+| Essay, 21 pairs | Essay→Essay | 21 | 12 | 0.247 | 50 | Harder val set |
+| LR=3e-4, r=16 | Essay→Essay | 40 | 20 | 0.1958 | 50 | LR sweep |
+| **LR=1e-4, r=16 ★** | **Essay→Essay** | **40** | **20** | **0.0998** | **50** | **BEST** |
+| LR=1e-4, r=8 (ablation) | Essay→Essay | 40 | 20 | 0.1058 | 50 | r=16 confirmed (+0.006 only) |
+
+---
+
+## Repo layout
+promptlab-v2/
+├── configs/                          # YAML configs for deslop, cotrain, rewriter
+│   └── topics_alpaca_diverse.yaml    # 100-topic set used for final run
+├── cotrain/
+│   └── loop.py                       # co-training loop; saves best_essay alongside each pair
+├── deslop/                           # evolutionary optimizer
+├── detector/
+│   └── model.py                      # SlopDetector (editlens/roberta-large)
+├── rewriter/
+│   ├── train.py                      # T5+LoRA training (essay mode, Seq2SeqTrainer)
+│   ├── essay_dataset.py              # curriculum dataset with gap-descending sort
+│   └── generate_essay_pairs.py       # generates contrastive pairs from cotrain output
+├── notebooks/
+│   └── promptlab_v2_demo.ipynb       # 3-adapter comparison demo (v1/v2/v3)
+├── figures/                          # pipeline diagrams (SVG)
+│   ├── fig1_optimization_formula.svg
+│   ├── fig2_stage1_pipeline.svg
+│   ├── fig3_few_shot_injection.svg
+│   └── fig4_unified_pipeline.svg
+├── docs/
+│   └── promptlab_v2_report_final.md  # full experimental report
+└── outputs/
+└── cotrain/
+└── prompt_pairs.jsonl        # 372 accumulated co-training pairs
+
+---
+
+## Setup
 
 ```bash
 cd promptlab-v2
-uv sync   # or: pip install -e .
+pip install -e .
 
-export HF_TOKEN=hf_...   # only if using gated Pangram models/datasets (not needed for binary mirror detector)
 export GROQ_API_KEY=gsk_...
-export GOOGLE_API_KEY=...   # optional; Gemini
+export HF_TOKEN=hf_...   # only needed for gated Pangram models
 ```
 
-Pangram **EditLens** data and checkpoints are **CC BY-NC-SA 4.0** (noncommercial). Accept the dataset license on Hugging Face before downloading.
+---
 
-## Aeon essays → mirror detector (Kaggle source)
-
-1. Put **`data/source/essays.csv`** in place (see **`data/source/README.md`**: manual download or `python data/download_aeon_essays.py` with Kaggle API credentials).
-2. Run the mirror + split + train commands in that README (`GROQ_API_KEY` required). Use **`--max-samples 500`** first (~smoke test), then **`2500`** overnight (~80+ min wall time at ~30 req/min).
-
-## Quick start — binary detector (no Pangram access)
-
-Uses **`FacebookAI/roberta-large`** with a **new 2-class head** (human=0, AI=1). `SlopDetector.score()` is still a weighted average over buckets; with K=2 it equals **P(AI)**.
-
-1. **Groq mirror data** (aim for ≥2000 successful pairs → ≥4000 JSONL rows):  
-   `python data/build_mirror_dataset.py --csv /path/to/essays.csv --text-col essay --output-jsonl data/mirror/mirrors.jsonl --max-samples 2500`
-2. **Splits**: `python data/make_mirror_splits.py --input data/mirror/mirrors.jsonl --out-dir data/mirror`
-3. **Train**: `python detector/train.py --config configs/detector_binary.yaml`
-4. **Load at inference**: `SlopDetector(checkpoint="outputs/detector_binary/best")` (local folder; no HF token).
-
-Shell recipe: `scripts/run_training_binary.sh` (uncomment the mirror step and set your CSV).
-
-## Quick start — EditLens checkpoint (Round 0, gated)
-
-1. Download data: `python data/download_editlens.py --output-dir data/cache`
-2. (Optional) Build mirrors: `python data/build_mirror_dataset.py --help`
-3. Merge: `python data/merge_datasets.py --config configs/detector.yaml`
-4. Train: `python detector/train.py --config configs/detector.yaml --extra-data path/to/extra.jsonl`
-
-Run Python with `promptlab-v2` as the working directory so imports resolve (`detector`, `deslop`, …), or install the package in editable mode.
-
-## Phase 3 — co-training (adversarial loop)
-
-Each round: sample topics → evolutionary deslop against the current detector → append “fool” essays → retrain detector → next round.
+## Running the optimizer
 
 ```bash
-export GROQ_API_KEY=...
-export HF_TOKEN=...
-cd promptlab-v2
-uv run python cotrain/loop.py --smoke
+python cotrain/loop.py --smoke          # quick smoke test (5 topics, 3 rounds)
+python cotrain/loop.py                  # full run across all topics
 ```
 
-### Remote GPU retrain pattern (recommended on Mac/MPS)
+Pairs are saved to `outputs/cotrain/prompt_pairs.jsonl` with `best_essay` embedded for fast rewriter training.
 
-If `roberta-large` retraining OOMs on Apple MPS, run deslop locally but retrain the detector on a GPU box:
+---
 
-1) **Local**: generate adversarial essays + merged train JSONL for the round:
+## Training the rewriter
 
 ```bash
-cd promptlab-v2
-export GROQ_API_KEY=...
-export HF_TOKEN=...
-uv run python cotrain/loop.py --skip-detector-retrain --resume-extra --smoke
-# Look for: {"round": 1, "train_jsonl_for_retrain": "outputs/detector_cotrain/train_merged_r1.jsonl"}
+# Generate contrastive pairs from accumulated cotrain output
+python rewriter/generate_essay_pairs.py
+
+# Train T5+LoRA rewriter (essay mode)
+python rewriter/train.py \
+  --lr 1e-4 \
+  --lora_r 16 \
+  --mode essay
 ```
 
-2) **Remote (Colab / GPU VM)**: run detector training using that merged JSONL:
+Best adapter saved to `outputs/rewriter/lora_adapter/` and synced to Google Drive.
 
-```bash
-python detector/train.py --config configs/detector.yaml \
-  --train-jsonl outputs/detector_cotrain/train_merged_r1.jsonl \
-  --val-jsonl data/merged/val.jsonl \
-  --output-dir outputs/detector_cotrain/round_1
-```
+---
 
-3) **Back local**: download `outputs/detector_cotrain/round_1/best/` and use it as the next checkpoint:
+## Demo
 
-```bash
-uv run python cotrain/loop.py --skip-detector-retrain --resume-extra --smoke \
-  --checkpoint outputs/detector_cotrain/round_1/best
-```
+Open [`notebooks/promptlab_v2_demo.ipynb`](notebooks/promptlab_v2_demo.ipynb) in Colab. The notebook loads all three adapter generations (v1 prompt-mode, v2 essay pivot, v3 final) and runs a side-by-side comparison on any topic you choose.
 
-## Parent repository
+Adapter paths are hardcoded to Google Drive locations from the final training runs:
 
-The older **slop-minimization** code and `slop_configs/` lexicons live in the repo root; `eval/metrics.py` can load lexicon paths relative to the parent project when configured.
+| Adapter | Drive path | Val slop |
+|---------|-----------|----------|
+| v1: prompt-mode | `promptlab-v2-outputs/2026-04-14_17-48/...` | ~0.391 |
+| v2: essay pivot | `promptlab-v2-outputs/2026-04-15_04-40_.../` | ~0.189 |
+| v3: final ★ | `promptlab-v2-outputs/2026-04-19_16-47_FINAL_MODEL/` | **0.0998** |
 
-## Implementation notes
+---
 
-- **EditLens HF schema**: If `data/download_editlens.py` maps scores wrong, inspect `datasets.load_dataset("pangram/editlens_iclr")` feature names and adjust `--score-field` / `configs/detector.yaml`.
-- **Detector training**: `configs/detector_binary.yaml` + `fresh_classification_head: true` trains **K=2** on mirror JSONL. `configs/detector.yaml` fine-tunes the gated **EditLens** head (K=11) when you have access. Same `SlopDetector` API for both; increase `num_buckets` when you add EditLens-style continuous labels.
-- **trl / SFT**: `rewriter/train.py` targets **trl** `SFTConfig` (`max_seq_length`, `dataset_text_field`). If your `trl` version errors on args, align with its docs or pin `trl>=0.9,<0.11`.
-- **Co-training**: `cotrain/loop.py` shells out to `detector/train.py` with a merged JSONL each round; ensure merged `val.jsonl` exists before long runs.
+## Key findings
+
+1. **Data quality > quantity** — 2272 Alpaca pairs degraded performance; wrong distribution produces contradictory gradients
+2. **Essay→Essay beats Prompt→Prompt by 52%** — one less step of indirection from the detector signal
+3. **Best checkpoint always at step 50** — the NQM noise floor with 40 pairs/800K params; early stopping on `slop_mean` is essential
+4. **LR=1e-4 beats 3e-4 by 2×** — conservative LR avoids overshooting in the ~50 useful steps
+5. **r=16 vs r=8 gap is only 0.006** — both well-regularized; r=16 confirmed appropriate
+
+---
+
+## Notes
+
+- EditLens (`pangram/editlens_roberta-large`) is **CC BY-NC-SA 4.0** — noncommercial use only
+- Groq API is used for all LLM calls; no local GPU required for the optimizer stage
+- The rewriter requires a CUDA GPU for training (tested on A100/T4 via Colab)
+- T5-base compresses rather than rewrites at length due to summarization pretraining — a larger generative backbone would improve output fluency while preserving the slop reduction
